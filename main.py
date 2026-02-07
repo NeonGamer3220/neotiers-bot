@@ -68,6 +68,9 @@ def user_already_has_ticket(guild: discord.Guild, user_id: int) -> discord.TextC
 # =========================
 # VIEWS (PERSISTENT BUTTONS)
 # =========================
+import asyncio
+import discord
+
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -76,32 +79,27 @@ class CloseTicketView(discord.ui.View):
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.followup.send("Csak szerveren használható.", ephemeral=True)
-            return
-
-        channel = interaction.channel
-        if not isinstance(channel, discord.TextChannel):
-            await interaction.followup.send("Hibás csatorna.", ephemeral=True)
-            return
-
         guild = interaction.guild
-        me = guild.me or guild.get_member(interaction.client.user.id)
+        channel = interaction.channel
 
+        if guild is None or not isinstance(channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("❌ Hibás környezet (guild/channel).", ephemeral=True)
+            return
+
+        me = guild.me or guild.get_member(interaction.client.user.id)
         if me is None:
-            await interaction.followup.send("Bot member hiba (guild.me).", ephemeral=True)
+            await interaction.followup.send("❌ Nem találom a bot membert (guild.me).", ephemeral=True)
             return
 
         perms = channel.permissions_for(me)
         if not perms.manage_channels:
             await interaction.followup.send(
-                "❌ Nem tudom törölni a csatornát: **hiányzik a Manage Channels** jog.\n"
-                "Fix: Tickets kategória → Permissions → bot role → ✅ Manage Channels (és ne legyen piros X).",
+                "❌ Nem tudom törölni a csatornát: **Manage Channels** hiányzik ebben a ticket csatornában / kategóriában.",
                 ephemeral=True
             )
             return
 
-        # ki zárhatja le: owner vagy staff/admin
+        # ki zárhatja: ticket owner vagy staff/admin
         staff_role = guild.get_role(STAFF_ROLE_ID)
         is_staff = interaction.user.guild_permissions.administrator or (staff_role and staff_role in interaction.user.roles)
         is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
@@ -116,16 +114,14 @@ class CloseTicketView(discord.ui.View):
         except Exception:
             pass
 
-        await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=3))
+        await asyncio.sleep(3)
 
         try:
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
         except discord.Forbidden:
-            try:
-                await channel.send("❌ Nem tudtam törölni a csatornát (403). Ellenőrizd a bot jogait a Tickets kategóriában.")
-            except Exception:
-                pass
-
+            await channel.send("❌ 403: Nem tudtam törölni (permission). Nézd meg a Tickets kategória/jogokat.")
+        except Exception as e:
+            await channel.send(f"❌ Nem tudtam törölni: {type(e).__name__}: {e}")
 
 
 class TicketPanelView(discord.ui.View):
