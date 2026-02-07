@@ -8,7 +8,7 @@ from discord import app_commands
 # =========================
 GUILD_ID = 1469740655520780631        # <-- állítsd át ha másik szerver
 STAFF_ROLE_ID = 1469755118634270864     # <-- staff role id (aki kezeli a ticketeket)
-TICKET_CATEGORY_ID = 0                  # <-- IDE írd a Tickets kategória ID-ját (kötelező)
+TICKET_CATEGORY_ID = 1469766438238687496                  # <-- IDE írd a Tickets kategória ID-ját (kötelező)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
