@@ -88,9 +88,13 @@ def ticket_channel_name(mode: str, user: discord.Member) -> str:
     base = f"ticket-{slugify(mode)}-{slugify(user.name)}"
     return base[:90]
 
-def user_already_has_ticket(guild: discord.Guild, user_id: int) -> discord.TextChannel | None:
+def user_already_has_ticket_for_mode(guild: discord.Guild, user_id: int, mode: str) -> discord.TextChannel | None:
+    needle_owner = f"ticket_owner:{user_id}"
+    needle_mode = f"mode:{mode}"
     for ch in guild.text_channels:
-        if ch.topic and f"ticket_owner:{user_id}" in ch.topic:
+        if not ch.topic:
+            continue
+        if needle_owner in ch.topic and needle_mode in ch.topic:
             return ch
     return None
 
@@ -210,10 +214,13 @@ class TicketModeButton(discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
 
-        existing = user_already_has_ticket(guild, user.id)
-        if existing:
-            await interaction.followup.send(f"Van már ticketed: {existing.mention}", ephemeral=True)
-            return
+        existing = user_already_has_ticket_for_mode(guild, user.id, self.mode)
+if existing:
+    await interaction.followup.send(
+        f"❌ Már van nyitott ticketed ebben a játékmódban (**{self.mode}**): {existing.mention}",
+        ephemeral=True
+    )
+    return
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
