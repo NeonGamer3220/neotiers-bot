@@ -74,7 +74,6 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Ticket zárás", style=discord.ButtonStyle.danger, custom_id="neotickets:close")
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Prevent "Az alkalmazás nem válaszolt"
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -86,49 +85,47 @@ class CloseTicketView(discord.ui.View):
             await interaction.followup.send("Hibás csatorna.", ephemeral=True)
             return
 
-        # permission check
-        me = interaction.guild.me
+        guild = interaction.guild
+        me = guild.me or guild.get_member(interaction.client.user.id)
+
         if me is None:
-            await interaction.followup.send("Bot guild.me hiba.", ephemeral=True)
+            await interaction.followup.send("Bot member hiba (guild.me).", ephemeral=True)
             return
 
-        if not channel.permissions_for(me).manage_channels:
+        perms = channel.permissions_for(me)
+        if not perms.manage_channels:
             await interaction.followup.send(
-                "❌ A botnak nincs joga törölni ezt a csatornát (Manage Channels hiányzik vagy kategória tiltja).",
+                "❌ Nem tudom törölni a csatornát: **hiányzik a Manage Channels** jog.\n"
+                "Fix: Tickets kategória → Permissions → bot role → ✅ Manage Channels (és ne legyen piros X).",
                 ephemeral=True
             )
             return
 
-        # Who can close? staff/admin OR ticket owner
-        is_staff = interaction.user.guild_permissions.administrator
-        staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
-        if staff_role and staff_role in interaction.user.roles:
-            is_staff = True
-
+        # ki zárhatja le: owner vagy staff/admin
+        staff_role = guild.get_role(STAFF_ROLE_ID)
+        is_staff = interaction.user.guild_permissions.administrator or (staff_role and staff_role in interaction.user.roles)
         is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
 
         if not (is_staff or is_owner):
-            await interaction.followup.send("Nincs jogosultságod bezárni ezt a ticketet.", ephemeral=True)
+            await interaction.followup.send("❌ Nincs jogod bezárni ezt a ticketet.", ephemeral=True)
             return
 
-        await interaction.followup.send("✅ Ticket zárása... (csatorna törlés 5 mp múlva)", ephemeral=True)
-
+        await interaction.followup.send("✅ Ticket zárása... (törlés 3 mp múlva)", ephemeral=True)
         try:
-            await channel.send("🔒 Ticket lezárva. A csatorna 5 mp múlva törlődik.")
+            await channel.send("🔒 Ticket lezárva. A csatorna 3 mp múlva törlődik.")
         except Exception:
             pass
 
-        # sleep 5 seconds
-        await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=5))
+        await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=3))
 
         try:
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
         except discord.Forbidden:
-            # if delete still fails, at least message
             try:
-                await channel.send("❌ Nem tudtam törölni a csatornát (permission).")
+                await channel.send("❌ Nem tudtam törölni a csatornát (403). Ellenőrizd a bot jogait a Tickets kategóriában.")
             except Exception:
                 pass
+
 
 
 class TicketPanelView(discord.ui.View):
