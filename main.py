@@ -7,7 +7,7 @@ from discord import app_commands
 # CONFIG (EDIT THESE)
 # =========================
 GUILD_ID = 1469740655520780631         # your server id
-STAFF_ROLE_ID = 1462884865887305728     # staff role that can see tickets (and fallback ping)
+STAFF_ROLE_ID = 1469755118634270864     # staff role that can see tickets (and fallback ping)
 TICKET_CATEGORY_ID = 1469766438238687496                # <-- put your TICKETS category ID here (MUST NOT BE 0)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
