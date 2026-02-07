@@ -1,21 +1,23 @@
 import os
 import re
+import json
+import asyncio
 import discord
 from discord import app_commands
 
 # =========================
-# CONFIG (EDIT THESE)
+# CONFIG (YOUR CORRECT ONES)
 # =========================
-GUILD_ID = 1469740655520780631         # your server id
-STAFF_ROLE_ID = 1469755118634270864     # staff role that can see tickets (and fallback ping)
-TICKET_CATEGORY_ID = 1469766438238687496                # <-- put your TICKETS category ID here (MUST NOT BE 0)
+GUILD_ID = 1469740655520780631
+STAFF_ROLE_ID = 1469755118634270864
+TICKET_CATEGORY_ID = 1469766438238687496
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN environment variable (Railway Variables -> DISCORD_TOKEN)")
+    raise RuntimeError("Missing DISCORD_TOKEN env var (Railway Variables -> DISCORD_TOKEN)")
 
 # =========================
-# MODES (BUTTONS)
+# TICKET SYSTEM CONFIG
 # =========================
 MODES = [
     "Vanilla", "UHC", "Pot", "NethPot", "SMP",
@@ -24,10 +26,7 @@ MODES = [
     "Spear Elytra", "Spear Mace",
 ]
 
-# =========================
-# MODE -> PING ROLE ID MAP
-# (pings these roles instead of "tester")
-# =========================
+# mode -> ping role id (YOUR LIST)
 MODE_PING_ROLE_IDS = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
@@ -45,6 +44,36 @@ MODE_PING_ROLE_IDS = {
     "DiaSMP": 1469763946968911893,
     "Creeper": 1469764200812249180,
 }
+
+# =========================
+# TESTRESULT CONFIG
+# =========================
+HISTORY_FILE = "test_history.json"
+
+# who can use /testresult:
+# - admins always
+# - plus: staff role id (you can add more IDs here if you want)
+ALLOWED_ROLE_IDS = {STAFF_ROLE_ID}
+
+# gamemodes same as ticket
+GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODES]
+
+# Hungarian display -> stored value (MCTIERS style)
+RANKS = [
+    ("Nem rangsorolt", "Unranked"),
+    ("Alacsony Tier 5", "Low Tier 5"),
+    ("Magas Tier 5", "High Tier 5"),
+    ("Alacsony Tier 4", "Low Tier 4"),
+    ("Magas Tier 4", "High Tier 4"),
+    ("Alacsony Tier 3", "Low Tier 3"),
+    ("Magas Tier 3", "High Tier 3"),
+    ("Alacsony Tier 2", "Low Tier 2"),
+    ("Magas Tier 2", "High Tier 2"),
+    ("Alacsony Tier 1", "Low Tier 1"),
+    ("Magas Tier 1", "High Tier 1"),
+]
+RANK_CHOICES = [app_commands.Choice(name=hu, value=val) for hu, val in RANKS]
+RANK_VALUE_TO_HU = {val: hu for hu, val in RANKS}
 
 # =========================
 # HELPERS
@@ -65,12 +94,37 @@ def user_already_has_ticket(guild: discord.Guild, user_id: int) -> discord.TextC
             return ch
     return None
 
-# =========================
-# VIEWS (PERSISTENT BUTTONS)
-# =========================
-import asyncio
-import discord
+def mc_avatar(username: str) -> str:
+    u = username.strip().replace(" ", "")
+    return f"https://mc-heads.net/avatar/{u}/128"
 
+def sanitize_player_key(name: str) -> str:
+    return re.sub(r"\s+", "", name.strip().lower())
+
+def load_history() -> dict:
+    if not os.path.exists(HISTORY_FILE):
+        return {}
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_history(data: dict) -> None:
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def can_use_testresult(interaction: discord.Interaction) -> bool:
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        return False
+    member: discord.Member = interaction.user
+    if member.guild_permissions.administrator:
+        return True
+    return any(r.id in ALLOWED_ROLE_IDS for r in member.roles)
+
+# =========================
+# VIEWS (PERSISTENT)
+# =========================
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -94,12 +148,12 @@ class CloseTicketView(discord.ui.View):
         perms = channel.permissions_for(me)
         if not perms.manage_channels:
             await interaction.followup.send(
-                "❌ Nem tudom törölni a csatornát: **Manage Channels** hiányzik ebben a ticket csatornában / kategóriában.",
+                "❌ Nem tudom törölni a csatornát: **Manage Channels** hiányzik ebben a csatornában/kategóriában.",
                 ephemeral=True
             )
             return
 
-        # ki zárhatja: ticket owner vagy staff/admin
+        # who can close: ticket owner OR staff/admin
         staff_role = guild.get_role(STAFF_ROLE_ID)
         is_staff = interaction.user.guild_permissions.administrator or (staff_role and staff_role in interaction.user.roles)
         is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
@@ -119,9 +173,15 @@ class CloseTicketView(discord.ui.View):
         try:
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
         except discord.Forbidden:
-            await channel.send("❌ 403: Nem tudtam törölni (permission). Nézd meg a Tickets kategória/jogokat.")
+            try:
+                await channel.send("❌ 403: Nem tudtam törölni (permission kategóriában/csatornában).")
+            except Exception:
+                pass
         except Exception as e:
-            await channel.send(f"❌ Nem tudtam törölni: {type(e).__name__}: {e}")
+            try:
+                await channel.send(f"❌ Nem tudtam törölni: {type(e).__name__}: {e}")
+            except Exception:
+                pass
 
 
 class TicketPanelView(discord.ui.View):
@@ -141,7 +201,6 @@ class TicketModeButton(discord.ui.Button):
         self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
-        # Prevent "Az alkalmazás nem válaszolt"
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -151,10 +210,6 @@ class TicketModeButton(discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
 
-        if TICKET_CATEGORY_ID == 0:
-            await interaction.followup.send("⚠️ A bot nincs beállítva: TICKET_CATEGORY_ID = 0", ephemeral=True)
-            return
-
         existing = user_already_has_ticket(guild, user.id)
         if existing:
             await interaction.followup.send(f"Van már ticketed: {existing.mention}", ephemeral=True)
@@ -162,7 +217,7 @@ class TicketModeButton(discord.ui.Button):
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
-            await interaction.followup.send("⚠️ Hibás ticket kategória ID (nem Category).", ephemeral=True)
+            await interaction.followup.send("⚠️ Hibás TICKET_CATEGORY_ID (nem Category).", ephemeral=True)
             return
 
         staff_role = guild.get_role(STAFF_ROLE_ID)
@@ -170,30 +225,31 @@ class TicketModeButton(discord.ui.Button):
             await interaction.followup.send("⚠️ Hibás STAFF_ROLE_ID (nincs ilyen role).", ephemeral=True)
             return
 
-        # Check create perms quickly (helps debugging)
-        me = guild.me
+        me = guild.me or guild.get_member(interaction.client.user.id)
         if me is None:
-            await interaction.followup.send("Bot guild.me hiba.", ephemeral=True)
+            await interaction.followup.send("⚠️ Bot member hiba (guild.me).", ephemeral=True)
             return
 
         if not category.permissions_for(me).manage_channels:
             await interaction.followup.send(
                 "❌ A bot nem tud csatornát létrehozni ebben a kategóriában.\n"
-                "Kell: ✅ View Channel + ✅ Manage Channels a TICKETS kategóriában a bot role-nak.",
+                "Fix: Tickets kategória permission → bot role: ✅ View Channel + ✅ Manage Channels",
                 ephemeral=True
             )
             return
 
-        # Overwrites: only user + staff role can see
+        # overwrites: everyone hidden, staff+user allowed, bot explicitly allowed
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True, embed_links=True, attach_files=True
+            ),
         }
 
         ch_name = ticket_channel_name(self.mode, user)
 
-        # Create channel
         try:
             channel = await guild.create_text_channel(
                 name=ch_name,
@@ -204,8 +260,7 @@ class TicketModeButton(discord.ui.Button):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                "❌ Missing Permissions: a bot nem tud csatornát létrehozni itt.\n"
-                "Ellenőrizd a kategória permissionöket (nincs piros X a bot role-nál).",
+                "❌ Missing Permissions: a bot nem tud csatornát létrehozni itt (kategória/role deny).",
                 ephemeral=True
             )
             return
@@ -213,6 +268,7 @@ class TicketModeButton(discord.ui.Button):
         embed = discord.Embed(
             title="Teszt kérés",
             description=(
+                "Kattintsott játékmód alapján ticket nyílt.\n\n"
                 f"**Játékmód:** `{self.mode}`\n"
                 f"**Nyitotta:** {user.mention}\n\n"
                 "Írj ide részleteket, staff hamarosan jön."
@@ -220,7 +276,6 @@ class TicketModeButton(discord.ui.Button):
             color=discord.Color.blurple()
         )
 
-        # Ping mode-specific role (fallback to staff role if missing)
         ping_role_id = MODE_PING_ROLE_IDS.get(self.mode)
         ping_role = guild.get_role(ping_role_id) if ping_role_id else None
 
@@ -228,16 +283,21 @@ class TicketModeButton(discord.ui.Button):
         if ping_role:
             pings.append(ping_role.mention)
         else:
+            # fallback if missing map
             pings.append(staff_role.mention)
 
-        await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
-        await interaction.followup.send(f"✅ Ticket megnyitva: {channel.mention}", ephemeral=True)
+        try:
+            await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ Ticket létrejött, de üzenet hiba: {type(e).__name__}: {e}", ephemeral=True)
+            return
 
+        await interaction.followup.send(f"✅ Ticket megnyitva: {channel.mention}", ephemeral=True)
 
 # =========================
 # BOT
 # =========================
-class NeoTiersTicketBot(discord.Client):
+class NeoTiersBot(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
         intents.guilds = True
@@ -246,24 +306,34 @@ class NeoTiersTicketBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # Persistent views (buttons survive restart)
+        # persistent buttons survive restart
         self.add_view(TicketPanelView())
         self.add_view(CloseTicketView())
 
         guild = discord.Object(id=GUILD_ID)
         await self.tree.sync(guild=guild)
-        print(f"Commands synced to guild {GUILD_ID}")
+        print(f"Slash commands synced to guild {GUILD_ID}")
 
-
-bot = NeoTiersTicketBot()
+bot = NeoTiersBot()
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    print("APP COMMAND ERROR:", repr(error))
+    try:
+        msg = f"❌ Hiba: {error}"
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
 
 # =========================
-# COMMAND: POST PANEL
+# COMMAND: TICKET PANEL
 # =========================
 @bot.tree.command(name="ticketpanel", description="(Admin) Kirakja a NeoTiers ticket panelt.")
 @app_commands.guilds(discord.Object(id=GUILD_ID))
@@ -279,5 +349,77 @@ async def ticketpanel(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=TicketPanelView())
 
+# =========================
+# COMMAND: RESYNC (optional helper)
+# =========================
+@bot.tree.command(name="resync", description="(Admin) Slash parancsok újraszinkronizálása ehhez a szerverhez.")
+@app_commands.guilds(discord.Object(id=GUILD_ID))
+async def resync(interaction: discord.Interaction):
+    if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Csak admin használhatja.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    await interaction.followup.send("✅ Újraszinkronizálva.", ephemeral=True)
 
+# =========================
+# COMMAND: TESTRESULT (MCTIERS)
+# =========================
+@bot.tree.command(name="testresult", description="MCTIERS teszt eredmény (előző rang automatikus, nincs region).")
+@app_commands.guilds(discord.Object(id=GUILD_ID))
+@app_commands.describe(
+    testedplayer="Tesztelt játékos (Minecraft név, nem Discord user)",
+    tester="Tesztelő (Discord user)",
+    username="Minecraft név a skin/fejhez",
+    gamemode="Játékmód",
+    rank_earned="Elért rang",
+)
+@app_commands.choices(gamemode=GAMEMODE_CHOICES, rank_earned=RANK_CHOICES)
+async def testresult(
+    interaction: discord.Interaction,
+    testedplayer: str,
+    tester: discord.Member,
+    username: str,
+    gamemode: app_commands.Choice[str],
+    rank_earned: app_commands.Choice[str],
+):
+    if not can_use_testresult(interaction):
+        await interaction.response.send_message("❌ Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+
+    history = load_history()
+    player_key = sanitize_player_key(testedplayer)
+    mode = gamemode.value
+
+    previous_value = "Unranked"
+    if player_key in history and isinstance(history[player_key], dict) and mode in history[player_key]:
+        previous_value = history[player_key][mode]
+
+    # save new earned rank
+    history.setdefault(player_key, {})
+    history[player_key][mode] = rank_earned.value
+    save_history(history)
+
+    prev_hu = RANK_VALUE_TO_HU.get(previous_value, previous_value)
+    earned_hu = RANK_VALUE_TO_HU.get(rank_earned.value, rank_earned.value)
+
+    embed = discord.Embed(
+        title=f"{testedplayer} teszt eredménye 🏆",
+        color=discord.Color.red()
+    )
+    embed.set_thumbnail(url=mc_avatar(username))
+
+    embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
+    embed.add_field(name="Játékmód:", value=mode, inline=False)
+    embed.add_field(name="Minecraft név:", value=username, inline=False)
+    embed.add_field(name="Előző rang:", value=prev_hu, inline=False)
+    embed.add_field(name="Elért rang:", value=earned_hu, inline=False)
+
+    await interaction.followup.send(embed=embed)
+
+# =========================
+# START
+# =========================
 bot.run(TOKEN)
