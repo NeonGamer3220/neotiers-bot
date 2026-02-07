@@ -4,22 +4,47 @@ import discord
 from discord import app_commands
 
 # =========================
-# CONFIG
+# CONFIG (EDIT THESE)
 # =========================
-GUILD_ID = 1469740655520780631        # <-- állítsd át ha másik szerver
-STAFF_ROLE_ID = 1469755118634270864     # <-- staff role id (aki kezeli a ticketeket)
-TICKET_CATEGORY_ID = 1469766438238687496                  # <-- IDE írd a Tickets kategória ID-ját (kötelező)
+GUILD_ID = 1462884529956982937          # your server id
+STAFF_ROLE_ID = 1462884865887305728     # staff role that can see tickets (and fallback ping)
+TICKET_CATEGORY_ID = 1469766438238687496                # <-- put your TICKETS category ID here (MUST NOT BE 0)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN environment variable")
+    raise RuntimeError("Missing DISCORD_TOKEN environment variable (Railway Variables -> DISCORD_TOKEN)")
 
-# A gombok feliratai (a képedhez hasonló)
+# =========================
+# MODES (BUTTONS)
+# =========================
 MODES = [
     "Vanilla", "UHC", "Pot", "NethPot", "SMP",
     "Sword", "Axe", "Mace", "Cart", "Creeper",
     "DiaSMP", "OGVanilla", "ShieldlessUHC",
+    "Spear Elytra", "Spear Mace",
 ]
+
+# =========================
+# MODE -> PING ROLE ID MAP
+# (pings these roles instead of "tester")
+# =========================
+MODE_PING_ROLE_IDS = {
+    "Mace": 1469763612452196375,
+    "Sword": 1469763677141074125,
+    "Axe": 1469763738889486518,
+    "Pot": 1469763780593324032,
+    "NethPot": 1469763817218117697,
+    "SMP": 1469764274955223161,
+    "UHC": 1469765994988704030,
+    "Vanilla": 1469763891226480926,
+    "OGVanilla": 1469764329460203571,
+    "ShieldlessUHC": 1469766017243807865,
+    "Spear Elytra": 1469764028195668199,
+    "Spear Mace": 1469763993857163359,
+    "Cart": 1469763920871952435,
+    "DiaSMP": 1469763946968911893,
+    "Creeper": 1469764200812249180,
+}
 
 # =========================
 # HELPERS
@@ -49,41 +74,69 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Ticket zárás", style=discord.ButtonStyle.danger, custom_id="neotickets:close")
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Prevent "Az alkalmazás nem válaszolt"
+        await interaction.response.defer(ephemeral=True)
+
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Csak szerveren használható.", ephemeral=True)
+            await interaction.followup.send("Csak szerveren használható.", ephemeral=True)
             return
 
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("Hibás csatorna.", ephemeral=True)
+            await interaction.followup.send("Hibás csatorna.", ephemeral=True)
             return
 
-        # Csak staff vagy ticket owner zárhassa
-        is_staff = interaction.user.get_role(STAFF_ROLE_ID) is not None or interaction.user.guild_permissions.administrator
+        # permission check
+        me = interaction.guild.me
+        if me is None:
+            await interaction.followup.send("Bot guild.me hiba.", ephemeral=True)
+            return
+
+        if not channel.permissions_for(me).manage_channels:
+            await interaction.followup.send(
+                "❌ A botnak nincs joga törölni ezt a csatornát (Manage Channels hiányzik vagy kategória tiltja).",
+                ephemeral=True
+            )
+            return
+
+        # Who can close? staff/admin OR ticket owner
+        is_staff = interaction.user.guild_permissions.administrator
+        staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
+        if staff_role and staff_role in interaction.user.roles:
+            is_staff = True
+
         is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
 
         if not (is_staff or is_owner):
-            await interaction.response.send_message("Nincs jogosultságod bezárni ezt a ticketet.", ephemeral=True)
+            await interaction.followup.send("Nincs jogosultságod bezárni ezt a ticketet.", ephemeral=True)
             return
 
-        await interaction.response.send_message("✅ Ticket zárása... (csatorna törlés 5 mp múlva)", ephemeral=True)
+        await interaction.followup.send("✅ Ticket zárása... (csatorna törlés 5 mp múlva)", ephemeral=True)
+
         try:
             await channel.send("🔒 Ticket lezárva. A csatorna 5 mp múlva törlődik.")
         except Exception:
             pass
 
+        # sleep 5 seconds
         await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=5))
+
         try:
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
         except discord.Forbidden:
-            # Ha nincs delete jog
-            pass
+            # if delete still fails, at least message
+            try:
+                await channel.send("❌ Nem tudtam törölni a csatornát (permission).")
+            except Exception:
+                pass
+
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         for mode in MODES:
             self.add_item(TicketModeButton(mode))
+
 
 class TicketModeButton(discord.ui.Button):
     def __init__(self, mode: str):
@@ -95,33 +148,50 @@ class TicketModeButton(discord.ui.Button):
         self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
+        # Prevent "Az alkalmazás nem válaszolt"
+        await interaction.response.defer(ephemeral=True)
+
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Csak szerveren használható.", ephemeral=True)
+            await interaction.followup.send("Csak szerveren használható.", ephemeral=True)
             return
 
         guild = interaction.guild
         user = interaction.user
 
         if TICKET_CATEGORY_ID == 0:
-            await interaction.response.send_message("⚠️ A bot nincs beállítva: TICKET_CATEGORY_ID = 0", ephemeral=True)
+            await interaction.followup.send("⚠️ A bot nincs beállítva: TICKET_CATEGORY_ID = 0", ephemeral=True)
             return
 
         existing = user_already_has_ticket(guild, user.id)
         if existing:
-            await interaction.response.send_message(f"Van már ticketed: {existing.mention}", ephemeral=True)
+            await interaction.followup.send(f"Van már ticketed: {existing.mention}", ephemeral=True)
             return
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("⚠️ Hibás ticket kategória ID.", ephemeral=True)
+            await interaction.followup.send("⚠️ Hibás ticket kategória ID (nem Category).", ephemeral=True)
             return
 
         staff_role = guild.get_role(STAFF_ROLE_ID)
         if staff_role is None:
-            await interaction.response.send_message("⚠️ Hibás STAFF_ROLE_ID (nincs ilyen role).", ephemeral=True)
+            await interaction.followup.send("⚠️ Hibás STAFF_ROLE_ID (nincs ilyen role).", ephemeral=True)
             return
 
-        # Jogosultságok
+        # Check create perms quickly (helps debugging)
+        me = guild.me
+        if me is None:
+            await interaction.followup.send("Bot guild.me hiba.", ephemeral=True)
+            return
+
+        if not category.permissions_for(me).manage_channels:
+            await interaction.followup.send(
+                "❌ A bot nem tud csatornát létrehozni ebben a kategóriában.\n"
+                "Kell: ✅ View Channel + ✅ Manage Channels a TICKETS kategóriában a bot role-nak.",
+                ephemeral=True
+            )
+            return
+
+        # Overwrites: only user + staff role can see
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
@@ -130,24 +200,46 @@ class TicketModeButton(discord.ui.Button):
 
         ch_name = ticket_channel_name(self.mode, user)
 
-        await interaction.response.defer(ephemeral=True)
-
-        channel = await guild.create_text_channel(
-            name=ch_name,
-            category=category,
-            overwrites=overwrites,
-            topic=f"ticket_owner:{user.id} | mode:{self.mode}",
-            reason=f"Ticket opened by {user} ({user.id}) - {self.mode}"
-        )
+        # Create channel
+        try:
+            channel = await guild.create_text_channel(
+                name=ch_name,
+                category=category,
+                overwrites=overwrites,
+                topic=f"ticket_owner:{user.id} | mode:{self.mode}",
+                reason=f"Ticket opened by {user} ({user.id}) - {self.mode}"
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ Missing Permissions: a bot nem tud csatornát létrehozni itt.\n"
+                "Ellenőrizd a kategória permissionöket (nincs piros X a bot role-nál).",
+                ephemeral=True
+            )
+            return
 
         embed = discord.Embed(
             title="Teszt kérés",
-            description=f"**Játékmód:** `{self.mode}`\n**Nyitotta:** {user.mention}\n\nÍrj ide részleteket, staff hamarosan jön.",
+            description=(
+                f"**Játékmód:** `{self.mode}`\n"
+                f"**Nyitotta:** {user.mention}\n\n"
+                "Írj ide részleteket, staff hamarosan jön."
+            ),
             color=discord.Color.blurple()
         )
 
-        await channel.send(content=f"{user.mention} {staff_role.mention}", embed=embed, view=CloseTicketView())
+        # Ping mode-specific role (fallback to staff role if missing)
+        ping_role_id = MODE_PING_ROLE_IDS.get(self.mode)
+        ping_role = guild.get_role(ping_role_id) if ping_role_id else None
+
+        pings = [user.mention]
+        if ping_role:
+            pings.append(ping_role.mention)
+        else:
+            pings.append(staff_role.mention)
+
+        await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
         await interaction.followup.send(f"✅ Ticket megnyitva: {channel.mention}", ephemeral=True)
+
 
 # =========================
 # BOT
@@ -161,7 +253,7 @@ class NeoTiersTicketBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # Persistent views
+        # Persistent views (buttons survive restart)
         self.add_view(TicketPanelView())
         self.add_view(CloseTicketView())
 
@@ -169,11 +261,13 @@ class NeoTiersTicketBot(discord.Client):
         await self.tree.sync(guild=guild)
         print(f"Commands synced to guild {GUILD_ID}")
 
+
 bot = NeoTiersTicketBot()
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
+
 
 # =========================
 # COMMAND: POST PANEL
@@ -187,9 +281,10 @@ async def ticketpanel(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="Teszt kérés",
-        description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
+        description="Kattints egy alábbi gombra, hogy tudj ticketet nyitni a kiválasztott játékmódhoz.",
         color=discord.Color.blurple()
     )
     await interaction.response.send_message(embed=embed, view=TicketPanelView())
+
 
 bot.run(TOKEN)
