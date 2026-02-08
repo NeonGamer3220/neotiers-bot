@@ -50,12 +50,12 @@ MODE_PING_ROLE_IDS = {
 # =========================
 HISTORY_FILE = "test_history.json"
 
-# who can use /testresult:
+# Who can use /testresult:
 # - admins always
-# - plus: staff role id (you can add more IDs here if you want)
+# - plus: STAFF_ROLE_ID
 ALLOWED_ROLE_IDS = {STAFF_ROLE_ID}
 
-# gamemodes same as ticket
+# gamemode dropdown uses same list
 GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODES]
 
 # Hungarian display -> stored value (MCTIERS style)
@@ -88,7 +88,8 @@ def ticket_channel_name(mode: str, user: discord.Member) -> str:
     base = f"ticket-{slugify(mode)}-{slugify(user.name)}"
     return base[:90]
 
-def user_already_has_ticket_for_mode(guild: discord.Guild, user_id: int, mode: str) -> discord.TextChannel | None:
+def get_ticket_channel_for_mode(guild: discord.Guild, user_id: int, mode: str) -> discord.TextChannel | None:
+    # Only block same gamemode tickets.
     needle_owner = f"ticket_owner:{user_id}"
     needle_mode = f"mode:{mode}"
     for ch in guild.text_channels:
@@ -157,7 +158,6 @@ class CloseTicketView(discord.ui.View):
             )
             return
 
-        # who can close: ticket owner OR staff/admin
         staff_role = guild.get_role(STAFF_ROLE_ID)
         is_staff = interaction.user.guild_permissions.administrator or (staff_role and staff_role in interaction.user.roles)
         is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
@@ -178,7 +178,7 @@ class CloseTicketView(discord.ui.View):
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
         except discord.Forbidden:
             try:
-                await channel.send("❌ 403: Nem tudtam törölni (permission kategóriában/csatornában).")
+                await channel.send("❌ 403: Nem tudtam törölni (permission).")
             except Exception:
                 pass
         except Exception as e:
@@ -214,13 +214,16 @@ class TicketModeButton(discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
 
-        existing = user_already_has_ticket_for_mode(guild, user.id, self.mode)
-if existing:
-    await interaction.followup.send(
-        f"❌ Már van nyitott ticketed ebben a játékmódban (**{self.mode}**): {existing.mention}",
-        ephemeral=True
-    )
-    return
+        # ✅ only block SAME gamemode
+        existing = get_ticket_channel_for_mode(guild, user.id, self.mode)
+        if existing:
+            # Don't mention the channel, because some users might not see it -> "Nincs hozzáférés"
+            await interaction.followup.send(
+                f"❌ Már van nyitott ticketed ebben a játékmódban: **{self.mode}**.\n"
+                f"Zárd be előbb, és utána nyithatsz újat.",
+                ephemeral=True
+            )
+            return
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
@@ -275,7 +278,7 @@ if existing:
         embed = discord.Embed(
             title="Teszt kérés",
             description=(
-                "Kattintsott játékmód alapján ticket nyílt.\n\n"
+                "Ticket nyitva a kiválasztott játékmódhoz.\n\n"
                 f"**Játékmód:** `{self.mode}`\n"
                 f"**Nyitotta:** {user.mention}\n\n"
                 "Írj ide részleteket, staff hamarosan jön."
@@ -290,7 +293,6 @@ if existing:
         if ping_role:
             pings.append(ping_role.mention)
         else:
-            # fallback if missing map
             pings.append(staff_role.mention)
 
         try:
@@ -313,7 +315,6 @@ class NeoTiersBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # persistent buttons survive restart
         self.add_view(TicketPanelView())
         self.add_view(CloseTicketView())
 
@@ -351,7 +352,7 @@ async def ticketpanel(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="Teszt kérés",
-        description="Kattints egy alábbi gombra, hogy tudj ticketet nyitni a kiválasztott játékmódhoz.",
+        description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
         color=discord.Color.blurple()
     )
     await interaction.response.send_message(embed=embed, view=TicketPanelView())
@@ -404,7 +405,6 @@ async def testresult(
     if player_key in history and isinstance(history[player_key], dict) and mode in history[player_key]:
         previous_value = history[player_key][mode]
 
-    # save new earned rank
     history.setdefault(player_key, {})
     history[player_key][mode] = rank_earned.value
     save_history(history)
