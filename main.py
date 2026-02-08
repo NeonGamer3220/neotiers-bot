@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import time
 import discord
 from discord import app_commands
 
@@ -17,16 +18,22 @@ if not TOKEN:
     raise RuntimeError("Missing DISCORD_TOKEN env var (Railway Variables -> DISCORD_TOKEN)")
 
 # =========================
+# COOLDOWN CONFIG (14 days)
+# =========================
+COOLDOWN_FILE = "ticket_cooldowns.json"
+COOLDOWN_SECONDS = 14 * 24 * 60 * 60  # 14 days
+
+# =========================
 # TICKET SYSTEM CONFIG
 # =========================
 MODES = [
     "Vanilla", "UHC", "Pot", "NethPot", "SMP",
     "Sword", "Axe", "Mace", "Cart", "Creeper",
     "DiaSMP", "OGVanilla", "ShieldlessUHC",
-    "Spear Elytra", "Spear Mace",
+    "Spear Elytra", "Spear Mace",  # ✅ includes the two spear modes
 ]
 
-# mode -> ping role id (YOUR LIST)
+# Mode -> ping role ID (includes your new spear pings)
 MODE_PING_ROLE_IDS = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
@@ -38,11 +45,13 @@ MODE_PING_ROLE_IDS = {
     "Vanilla": 1469763891226480926,
     "OGVanilla": 1469764329460203571,
     "ShieldlessUHC": 1469766017243807865,
-    "Spear Elytra": 1469764028195668199,
-    "Spear Mace": 1469763993857163359,
     "Cart": 1469763920871952435,
     "DiaSMP": 1469763946968911893,
     "Creeper": 1469764200812249180,
+
+    # ✅ NEW spear ping roles you provided
+    "Spear Mace": 1469968704203788425,
+    "Spear Elytra": 1469968762575912970,
 }
 
 # =========================
@@ -55,10 +64,10 @@ HISTORY_FILE = "test_history.json"
 # - plus: STAFF_ROLE_ID
 ALLOWED_ROLE_IDS = {STAFF_ROLE_ID}
 
-# gamemode dropdown uses same list
+# Choices for /testresult (auto from MODES)
 GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODES]
 
-# Hungarian display -> stored value (MCTIERS style)
+# Hungarian display -> stored value
 RANKS = [
     ("Nem rangsorolt", "Unranked"),
     ("Alacsony Tier 5", "Low Tier 5"),
@@ -75,6 +84,7 @@ RANKS = [
 RANK_CHOICES = [app_commands.Choice(name=hu, value=val) for hu, val in RANKS]
 RANK_VALUE_TO_HU = {val: hu for hu, val in RANKS}
 
+
 # =========================
 # HELPERS
 # =========================
@@ -89,7 +99,6 @@ def ticket_channel_name(mode: str, user: discord.Member) -> str:
     return base[:90]
 
 def get_ticket_channel_for_mode(guild: discord.Guild, user_id: int, mode: str) -> discord.TextChannel | None:
-    # Only block same gamemode tickets.
     needle_owner = f"ticket_owner:{user_id}"
     needle_mode = f"mode:{mode}"
     for ch in guild.text_channels:
@@ -126,6 +135,35 @@ def can_use_testresult(interaction: discord.Interaction) -> bool:
     if member.guild_permissions.administrator:
         return True
     return any(r.id in ALLOWED_ROLE_IDS for r in member.roles)
+
+def load_cooldowns() -> dict:
+    if not os.path.exists(COOLDOWN_FILE):
+        return {}
+    try:
+        with open(COOLDOWN_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_cooldowns(data: dict) -> None:
+    with open(COOLDOWN_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def cooldown_key(user_id: int, mode: str) -> str:
+    return f"{user_id}:{mode}"
+
+def format_remaining(seconds_left: int) -> str:
+    if seconds_left < 0:
+        seconds_left = 0
+    days = seconds_left // 86400
+    hours = (seconds_left % 86400) // 3600
+    mins = (seconds_left % 3600) // 60
+    if days > 0:
+        return f"{days} nap {hours} óra"
+    if hours > 0:
+        return f"{hours} óra {mins} perc"
+    return f"{mins} perc"
+
 
 # =========================
 # VIEWS (PERSISTENT)
@@ -165,6 +203,18 @@ class CloseTicketView(discord.ui.View):
         if not (is_staff or is_owner):
             await interaction.followup.send("❌ Nincs jogod bezárni ezt a ticketet.", ephemeral=True)
             return
+
+        # ===== Set cooldown for the ticket owner + mode (starts on close)
+        topic = channel.topic or ""
+        m_owner = re.search(r"ticket_owner:(\d+)", topic)
+        m_mode = re.search(r"mode:([^|]+)", topic)
+        owner_id = int(m_owner.group(1)) if m_owner else None
+        mode = m_mode.group(1).strip() if m_mode else None
+
+        if owner_id and mode:
+            cds = load_cooldowns()
+            cds[cooldown_key(owner_id, mode)] = int(time.time()) + COOLDOWN_SECONDS
+            save_cooldowns(cds)
 
         await interaction.followup.send("✅ Ticket zárása... (törlés 3 mp múlva)", ephemeral=True)
         try:
@@ -213,11 +263,23 @@ class TicketModeButton(discord.ui.Button):
 
         guild = interaction.guild
         user = interaction.user
+        now = int(time.time())
 
-        # ✅ only block SAME gamemode
+        # ===== 14-day cooldown per user+mode
+        cds = load_cooldowns()
+        until = int(cds.get(cooldown_key(user.id, self.mode), 0))
+        if until > now:
+            remaining = format_remaining(until - now)
+            await interaction.followup.send(
+                f"⏳ **{self.mode}** cooldown aktív.\n"
+                f"Új ticketet csak **{remaining}** múlva tudsz nyitni.",
+                ephemeral=True
+            )
+            return
+
+        # ===== only block SAME gamemode open tickets
         existing = get_ticket_channel_for_mode(guild, user.id, self.mode)
         if existing:
-            # Don't mention the channel, because some users might not see it -> "Nincs hozzáférés"
             await interaction.followup.send(
                 f"❌ Már van nyitott ticketed ebben a játékmódban: **{self.mode}**.\n"
                 f"Zárd be előbb, és utána nyithatsz újat.",
@@ -248,14 +310,11 @@ class TicketModeButton(discord.ui.Button):
             )
             return
 
-        # overwrites: everyone hidden, staff+user allowed, bot explicitly allowed
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-            me: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True, embed_links=True, attach_files=True
-            ),
+            me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, embed_links=True, attach_files=True),
         }
 
         ch_name = ticket_channel_name(self.mode, user)
@@ -295,13 +354,9 @@ class TicketModeButton(discord.ui.Button):
         else:
             pings.append(staff_role.mention)
 
-        try:
-            await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
-        except Exception as e:
-            await interaction.followup.send(f"⚠️ Ticket létrejött, de üzenet hiba: {type(e).__name__}: {e}", ephemeral=True)
-            return
-
+        await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
         await interaction.followup.send(f"✅ Ticket megnyitva: {channel.mention}", ephemeral=True)
+
 
 # =========================
 # BOT
@@ -340,6 +395,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     except Exception:
         pass
 
+
 # =========================
 # COMMAND: TICKET PANEL
 # =========================
@@ -357,6 +413,7 @@ async def ticketpanel(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=TicketPanelView())
 
+
 # =========================
 # COMMAND: RESYNC (optional helper)
 # =========================
@@ -369,6 +426,7 @@ async def resync(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
     await interaction.followup.send("✅ Újraszinkronizálva.", ephemeral=True)
+
 
 # =========================
 # COMMAND: TESTRESULT (MCTIERS)
@@ -425,6 +483,7 @@ async def testresult(
     embed.add_field(name="Elért rang:", value=earned_hu, inline=False)
 
     await interaction.followup.send(embed=embed)
+
 
 # =========================
 # START
