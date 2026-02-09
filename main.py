@@ -1,4 +1,3 @@
-
 import os
 import discord
 from discord import app_commands
@@ -21,7 +20,7 @@ TICKET_CATEGORY_ID = 1469766438238687496
 
 # Website API
 API_URL = "https://neontiers.vercel.app/api/tests"
-BOT_API_KEY = TOKEN  # IGEN: csak a bot token
+BOT_API_KEY = TOKEN  # csak a bot token
 
 # Ping roles per gamemode (ticket ping!)
 PING_ROLES = {
@@ -42,22 +41,27 @@ PING_ROLES = {
     "SpearElytra": 1469968762575912970,
 }
 
-# Rank (value = short code that goes to API) -> (HU label, points)
-RANKS = {
-    "Unranked": ("Unranked", 0),
-    "LT5": ("Alacsony Tier 5", 1),
-    "HT5": ("Magas Tier 5", 2),
-    "LT4": ("Alacsony Tier 4", 3),
-    "HT4": ("Magas Tier 4", 4),
-    "LT3": ("Alacsony Tier 3", 5),
-    "HT3": ("Magas Tier 3", 6),
-    "LT2": ("Alacsony Tier 2", 7),
-    "HT2": ("Magas Tier 2", 8),
-    "LT1": ("Alacsony Tier 1", 9),
-    "HT1": ("Magas Tier 1", 10),
-}
-
 GAMEMODES = list(PING_ROLES.keys())
+
+# Rank codes (AZT írjuk ki, NEM magyar szöveget)
+RANK_CODES = [
+    "Unranked",
+    "LT5", "HT5",
+    "LT4", "HT4",
+    "LT3", "HT3",
+    "LT2", "HT2",
+    "LT1", "HT1",
+]
+
+# pontozás (ha kell a zöld “+ pont” üzenethez)
+RANK_POINTS = {
+    "Unranked": 0,
+    "LT5": 1, "HT5": 2,
+    "LT4": 3, "HT4": 4,
+    "LT3": 5, "HT3": 6,
+    "LT2": 7, "HT2": 8,
+    "LT1": 9, "HT1": 10,
+}
 
 # =========================
 # DISCORD SETUP
@@ -89,27 +93,28 @@ def ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
         color=0x2b2d31
     )
 
-async def fetch_previous_rank(username: str, gamemode: str) -> str:
-    """Get previous rank for (username,gamemode) from API GET /api/tests."""
+async def fetch_previous_rank(mc_name: str, gamemode: str) -> str:
+    """
+    Előző rang lekérése a weboldal API-ból.
+    Végigmegy a tests listán és megkeresi (mc_name + gamemode) legutóbbi rankját.
+    """
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(API_URL) as resp:
                 if resp.status != 200:
                     return "Unranked"
                 data = await resp.json()
-                # expected: { tests: [...] }
-                for t in data.get("tests", []):
-                    if str(t.get("username", "")).strip().lower() == username.strip().lower() and str(t.get("gamemode", "")).strip() == gamemode:
-                        return str(t.get("rank", "Unranked")).strip() or "Unranked"
+                tests = data.get("tests", [])
+
+                # Ha a backend már "latest" jellegűt ad, akkor első találat elég.
+                # Ha nem, akkor a listát fordítva is nézhetjük. (biztosabb)
+                for t in reversed(tests):
+                    if str(t.get("username", "")).strip().lower() == mc_name.strip().lower() and str(t.get("gamemode", "")).strip() == gamemode:
+                        r = str(t.get("rank", "Unranked")).strip() or "Unranked"
+                        return r if r in RANK_CODES else "Unranked"
     except Exception:
         pass
     return "Unranked"
-
-def rank_hu(rank_code: str) -> str:
-    return RANKS.get(rank_code, (rank_code, 0))[0]
-
-def rank_points(rank_code: str) -> int:
-    return RANKS.get(rank_code, (rank_code, 0))[1]
 
 # =========================
 # UI: CLOSE TICKET (persistent)
@@ -240,48 +245,54 @@ async def ticketpanel(interaction: discord.Interaction):
     await interaction.followup.send("✅ Panel elküldve.", ephemeral=True)
 
 # =========================
-# /testresult (OLD STYLE but connected)
-# username = mc name
-# gamemode = CHOICE
-# rank = CHOICE
-# tester = implicit interaction.user
-# previous rank = automatic from website
+# /testresult (AS YOU WANT)
+# mc_name (skin)
+# tester (user mention)
+# gamemode (choice)
+# tier (choice = LT3 etc)
+# previous rank auto from API
 # =========================
-
-# choices
 GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in GAMEMODES]
-RANK_CHOICES = [app_commands.Choice(name=f"{rank_hu(code)} ({code})", value=code) for code in RANKS.keys()]
+TIER_CHOICES = [app_commands.Choice(name=code, value=code) for code in RANK_CODES]
 
 @tree.command(
     name="testresult",
-    description="Teszt eredmény mentése + weboldal frissítése (választható mód/rang)",
+    description="Teszt eredmény (mc_név + tesztelő + játékmód + tier) + weboldal mentés",
     guild=discord.Object(id=GUILD_ID)
 )
 @app_commands.describe(
-    username="Minecraft név (skin ehhez)",
+    mc_name="Minecraft név (skin ehhez)",
+    tester="Tesztelő (Discord)",
     gamemode="Játékmód",
-    rank="Elért rang"
+    tier="Elért tier (pl. LT3, HT4...)"
 )
-@app_commands.choices(gamemode=GAMEMODE_CHOICES, rank=RANK_CHOICES)
+@app_commands.choices(gamemode=GAMEMODE_CHOICES, tier=TIER_CHOICES)
 async def testresult(
     interaction: discord.Interaction,
-    username: str,
+    mc_name: str,
+    tester: discord.Member,
     gamemode: app_commands.Choice[str],
-    rank: app_commands.Choice[str],
+    tier: app_commands.Choice[str],
 ):
     await interaction.response.defer(ephemeral=True)
 
+    # permission
+    if not isinstance(interaction.user, discord.Member) or not has_staff_role(interaction.user):
+        await interaction.followup.send("❌ Nincs jogod használni (STAFF_ROLE_ID kell).", ephemeral=True)
+        return
+
     gm = gamemode.value
-    new_rank_code = rank.value
+    new_rank = tier.value  # LT3 stb
 
-    prev_rank_code = await fetch_previous_rank(username, gm)
+    # előző rang automatikus
+    prev_rank = await fetch_previous_rank(mc_name, gm)
 
-    # POST to website (upsert should be handled server-side)
+    # POST to website
     payload = {
-        "username": username.strip(),
+        "username": mc_name.strip(),
         "gamemode": gm,
-        "rank": new_rank_code,
-        "tester": interaction.user.name
+        "rank": new_rank,
+        "tester": str(tester.id),  # backendnek mindegy; weboldalon nem kell, de elküldjük
     }
 
     try:
@@ -299,39 +310,29 @@ async def testresult(
         await interaction.followup.send(f"❌ Hálózati/API hiba: {e}", ephemeral=True)
         return
 
-    prev_hu = rank_hu(prev_rank_code)
-    new_hu = rank_hu(new_rank_code)
-    pts = rank_points(new_rank_code)
-
-    # Public embed (results message)
-    skin_url = f"https://mc-heads.net/avatar/{username}/64"
+    # EMBED — pont úgy mint a képen, és kódokat írunk ki (LT3 stb)
+    skin_url = f"https://mc-heads.net/avatar/{mc_name}/64"
 
     embed = discord.Embed(
-        title=f"{username} teszt eredménye 🏆",
+        title=f"{mc_name} teszt eredménye 🏆",
         color=0x2b2d31
     )
     embed.set_thumbnail(url=skin_url)
-    embed.add_field(name="Tesztelő:", value=interaction.user.mention, inline=False)
+    embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
     embed.add_field(name="Játékmód:", value=gm, inline=False)
-    embed.add_field(name="Minecraft név:", value=username, inline=False)
-    embed.add_field(name="Előző rang:", value=prev_hu, inline=False)
-    embed.add_field(name="Elért rang:", value=new_hu, inline=False)
+    embed.add_field(name="Minecraft név:", value=mc_name, inline=False)
+    embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
+    embed.add_field(name="Elért rang:", value=new_rank, inline=False)
 
-    # Summary also in embed (so it appears “rendesen”)
-    embed.add_field(
-        name="Összegzés",
-        value=f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank_code}** → Elért: **{new_rank_code}** | **+{pts} pont**",
-        inline=False
-    )
-
+    # küldés publikusba
     try:
         await interaction.channel.send(embed=embed)
     except Exception:
         pass
 
-    # Ephemeral status (the green one)
+    pts = RANK_POINTS.get(new_rank, 0)
     await interaction.followup.send(
-        f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank_code}** → Elért: **{new_rank_code}** | **+{pts} pont**",
+        f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{new_rank}** | **+{pts} pont**",
         ephemeral=True
     )
 
@@ -340,10 +341,8 @@ async def testresult(
 # =========================
 @client.event
 async def on_ready():
-    # persistent views
     client.add_view(TicketView())
     client.add_view(CloseTicketView())
-
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {client.user}")
 
