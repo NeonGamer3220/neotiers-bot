@@ -44,14 +44,12 @@ PING_ROLES = {
     "Creeper": 1469764200812249180,
 }
 
-# Gamemode options
 MODE_LIST = list(PING_ROLES.keys())
 
-# Rank options (short format like you asked)
+# Rank options (short format)
 RANKS = ["Unranked", "LT5", "HT5", "LT4", "HT4", "LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
 
-# Points mapping (you can tweak if you want)
-# Unranked = 0, LT5 = 1 ... HT1 = 10
+# Points mapping (tweakable)
 RANK_POINTS = {
     "Unranked": 0,
     "LT5": 1, "HT5": 2,
@@ -64,7 +62,6 @@ RANK_POINTS = {
 # Local storage for previous ranks
 DATA_FILE = Path("player_ranks.json")
 
-
 # =========================
 # DISCORD SETUP
 # =========================
@@ -74,7 +71,6 @@ intents.members = True
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
-
 
 # =========================
 # STORAGE
@@ -102,7 +98,6 @@ def set_previous_rank(player: str, mode: str, rank: str):
     data[key_for(player, mode)] = rank
     save_data(data)
 
-
 # =========================
 # HELPERS
 # =========================
@@ -110,8 +105,6 @@ def has_staff_role(member: discord.Member) -> bool:
     return any(r.id == STAFF_ROLE_ID for r in member.roles)
 
 def skin_url(username: str) -> str:
-    # Simple, stable head render
-    # You can swap this to another service if you want
     return f"https://minotar.net/helm/{username}/128.png"
 
 def make_panel_embed() -> discord.Embed:
@@ -128,7 +121,7 @@ def make_ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
         color=0x2b2d31
     )
 
-def make_test_embed(tester: discord.abc.User, tested_player: str, mc_skin_name: str, mode: str, prev_rank: str, earned_rank: str) -> discord.Embed:
+def make_test_embed(tester: discord.Member, tested_player: str, username: str, mode: str, prev_rank: str, earned_rank: str) -> discord.Embed:
     e = discord.Embed(
         title=f"{tested_player} teszt eredménye 🏆",
         color=0x2b2d31
@@ -138,9 +131,8 @@ def make_test_embed(tester: discord.abc.User, tested_player: str, mc_skin_name: 
     e.add_field(name="Minecraft név:", value=tested_player, inline=False)
     e.add_field(name="Előző rang:", value=prev_rank, inline=False)
     e.add_field(name="Elért rang:", value=earned_rank, inline=False)
-    e.set_thumbnail(url=skin_url(mc_skin_name))
+    e.set_thumbnail(url=skin_url(username))
     return e
-
 
 # =========================
 # UI: CLOSE TICKET
@@ -157,7 +149,6 @@ class CloseTicketButton(Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await interaction.followup.send("🗑 Ticket törlődik 3 mp múlva...", ephemeral=True)
-
         try:
             await asyncio.sleep(3)
             await interaction.channel.delete()
@@ -165,7 +156,6 @@ class CloseTicketButton(Button):
             await interaction.followup.send("❌ Nincs jogom törölni a csatornát.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Hiba: {e}", ephemeral=True)
-
 
 # =========================
 # UI: TICKET PANEL
@@ -237,7 +227,6 @@ class TicketButton(Button):
         await channel.send(embed=make_ticket_embed(self.mode, interaction.user), view=CloseTicketView())
         await interaction.followup.send(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
-
 # =========================
 # SLASH: ticketpanel
 # =========================
@@ -261,9 +250,8 @@ async def ticketpanel(interaction: discord.Interaction):
 
     await interaction.followup.send("✅ Panel elküldve.", ephemeral=True)
 
-
 # =========================
-# SLASH: testresult (CHOICES!)
+# SLASH: testresult (CHOICES + required tester + required username)
 # =========================
 MODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODE_LIST]
 RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in RANKS]
@@ -275,7 +263,8 @@ RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in RANKS]
 )
 @app_commands.describe(
     tested_player="Minecraft játékos neve (nem Discord tag!)",
-    mc_skin="Skin név (ha más, mint a tested_player)",
+    tester="Tesztelő (Discord tag)",
+    username="Minecraft skin név",
     gamemode="Játékmód",
     rank_earned="Elért rang"
 )
@@ -283,10 +272,10 @@ RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in RANKS]
 async def testresult(
     interaction: discord.Interaction,
     tested_player: str,
+    tester: discord.Member,
+    username: str,
     gamemode: app_commands.Choice[str],
     rank_earned: app_commands.Choice[str],
-    mc_skin: str = None,
-    tester: discord.Member = None
 ):
     await interaction.response.defer(ephemeral=True)
 
@@ -298,40 +287,38 @@ async def testresult(
     mode = gamemode.value
     earned = rank_earned.value
     prev = get_previous_rank(tested_player, mode)
-
-    # skin name fallback
-    if not mc_skin or mc_skin.strip() == "":
-        mc_skin = tested_player
-
-    # tester fallback
-    if tester is None:
-        tester_user = interaction.user
-    else:
-        tester_user = tester
-
-    # Points for this earned rank
     pts = RANK_POINTS.get(earned, 0)
 
-    # Send embed to channel (public like your screenshot)
+    # Send embed public to channel
     try:
-        embed = make_test_embed(tester_user, tested_player, mc_skin, mode, prev, earned)
+        embed = make_test_embed(tester, tested_player, username, mode, prev, earned)
         await interaction.channel.send(embed=embed)
     except Exception:
         pass
 
-    # Save previous rank (so next test auto fills)
+    # Save previous rank
     set_previous_rank(tested_player, mode, earned)
 
-    # Post to website API (this is what makes it show up)
+    # IMPORTANT: send compatible payload keys (so your route can't complain)
     payload = {
+        # likely required by your API:
         "tested_player": tested_player,
-        "skin": mc_skin,
+        "tester": str(tester.id),
+        "tester_id": str(tester.id),
+        "tester_name": str(tester),
+        "username": username,
         "gamemode": mode,
         "previous_rank": prev,
         "rank_earned": earned,
         "points": pts,
-        "tester": str(tester_user.id),
-        "tester_name": str(tester_user)
+
+        # compatibility aliases (in case the route expects different names):
+        "player": tested_player,
+        "skin": username,
+        "mode": mode,
+        "previousRank": prev,
+        "rankEarned": earned,
+        "rank": earned,
     }
 
     try:
@@ -341,20 +328,19 @@ async def testresult(
                 json=payload,
                 headers={"Authorization": f"Bearer {BOT_API_KEY}"}
             ) as resp:
+                text = await resp.text()
                 if resp.status == 200:
                     await interaction.followup.send(
                         f"✅ Mentve + weboldal frissítve.\nElőző: `{prev}` → Elért: `{earned}` | +`{pts}` pont",
                         ephemeral=True
                     )
                 else:
-                    text = await resp.text()
                     await interaction.followup.send(
                         f"⚠️ Embed elküldve, DE web API hiba: {resp.status}\n{text}",
                         ephemeral=True
                     )
     except Exception as e:
         await interaction.followup.send(f"⚠️ Embed elküldve, DE web API hálózati hiba: {e}", ephemeral=True)
-
 
 # =========================
 # READY
@@ -363,6 +349,5 @@ async def testresult(
 async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {client.user}")
-
 
 client.run(TOKEN)
