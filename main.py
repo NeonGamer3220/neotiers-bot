@@ -3,26 +3,19 @@ from discord import app_commands
 from discord.ui import View, Button
 import os
 import aiohttp
+import asyncio
 
-# =========================
-# ENV
-# =========================
-TOKEN = os.getenv("DISCORD_TOKEN")  # Discord bot token (ENNYI)
+TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN env var missing!")
 
-# =========================
-# CONFIG (EDIT THESE)
-# =========================
 GUILD_ID = 1469740655520780631
 STAFF_ROLE_ID = 1469755118634270864
 TICKET_CATEGORY_ID = 1469766438238687496
 
-# Website API (Vercel)
 API_URL = "https://neontiers.vercel.app/api/tests"
-BOT_API_KEY = TOKEN  # igen, csak a bot token
+BOT_API_KEY = TOKEN
 
-# Ping roles per gamemode
 PING_ROLES = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
@@ -41,9 +34,6 @@ PING_ROLES = {
     "Creeper": 1469764200812249180,
 }
 
-# =========================
-# DISCORD SETUP
-# =========================
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -51,11 +41,10 @@ intents.members = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-# =========================
-# HELPERS
-# =========================
+
 def has_staff_role(member: discord.Member) -> bool:
     return any(r.id == STAFF_ROLE_ID for r in member.roles)
+
 
 def make_panel_embed() -> discord.Embed:
     return discord.Embed(
@@ -64,6 +53,7 @@ def make_panel_embed() -> discord.Embed:
         color=0x7b5cff
     )
 
+
 def make_ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
     return discord.Embed(
         title="Teszt ticket",
@@ -71,39 +61,37 @@ def make_ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
         color=0x2b2d31
     )
 
-# =========================
-# UI: CLOSE TICKET
-# =========================
+
 class CloseTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(CloseTicketButton())
+
 
 class CloseTicketButton(Button):
     def __init__(self):
         super().__init__(label="Ticket bezárása", style=discord.ButtonStyle.danger, emoji="🗑️")
 
     async def callback(self, interaction: discord.Interaction):
-        # MUST respond within 3 seconds
         await interaction.response.defer(ephemeral=True)
 
-        # Try delete channel after 3 seconds
         await interaction.followup.send("🗑 Ticket törlődik 3 mp múlva...", ephemeral=True)
+
         try:
-            await interaction.channel.delete(delay=3)
+            await asyncio.sleep(3)
+            await interaction.channel.delete()
         except discord.Forbidden:
             await interaction.followup.send("❌ Nincs jogom törölni a csatornát.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Hiba: {e}", ephemeral=True)
 
-# =========================
-# UI: TICKET PANEL
-# =========================
+
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
         for name in PING_ROLES.keys():
             self.add_item(TicketButton(name))
+
 
 class TicketButton(Button):
     def __init__(self, mode: str):
@@ -111,7 +99,6 @@ class TicketButton(Button):
         self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
-        # MUST respond within 3 seconds
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
@@ -124,7 +111,6 @@ class TicketButton(Button):
             await interaction.followup.send("❌ Ticket kategória ID rossz vagy nem kategória.", ephemeral=True)
             return
 
-        # Allow DIFFERENT tickets, block SAME gamemode ticket
         topic_value = f"{interaction.user.id}:{self.mode}"
         for ch in category.text_channels:
             if ch.topic == topic_value:
@@ -145,7 +131,6 @@ class TicketButton(Button):
             staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
         }
 
-        # Create ticket channel
         try:
             channel = await guild.create_text_channel(
                 name=f"{self.mode.lower()}-{interaction.user.name}".replace(" ", "-"),
@@ -160,7 +145,6 @@ class TicketButton(Button):
             await interaction.followup.send(f"❌ Hiba csatorna létrehozásnál: {e}", ephemeral=True)
             return
 
-        # Ping correct role for this gamemode (NOT tester role)
         ping_role_id = PING_ROLES.get(self.mode)
         ping_role = guild.get_role(ping_role_id) if ping_role_id else None
 
@@ -173,15 +157,11 @@ class TicketButton(Button):
             pass
 
         await channel.send(embed=make_ticket_embed(self.mode, interaction.user), view=CloseTicketView())
-
         await interaction.followup.send(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
-# =========================
-# SLASH COMMANDS
-# =========================
+
 @tree.command(name="ticketpanel", description="Teszt kérő panel küldése", guild=discord.Object(id=GUILD_ID))
 async def ticketpanel(interaction: discord.Interaction):
-    # MUST respond within 3 seconds
     await interaction.response.defer(ephemeral=True)
 
     if not isinstance(interaction.user, discord.Member):
@@ -208,7 +188,6 @@ async def ticketpanel(interaction: discord.Interaction):
     rank="Elért rang (pl. HT4)"
 )
 async def testresult(interaction: discord.Interaction, username: str, gamemode: str, rank: str):
-    # MUST respond within 3 seconds
     await interaction.response.defer(ephemeral=True)
 
     payload = {
@@ -233,16 +212,11 @@ async def testresult(interaction: discord.Interaction, username: str, gamemode: 
     except Exception as e:
         await interaction.followup.send(f"❌ Hálózati/API hiba: {e}", ephemeral=True)
 
-# =========================
-# READY
-# =========================
+
 @client.event
 async def on_ready():
-    guild_obj = discord.Object(id=GUILD_ID)
-    await tree.sync(guild=guild_obj)
+    await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {client.user}")
 
-# =========================
-# RUN
-# =========================
+
 client.run(TOKEN)
