@@ -1,40 +1,26 @@
 import os
-import re
 import json
-import asyncio
 import time
+import asyncio
+from datetime import datetime, timezone
+
+import requests
 import discord
 from discord import app_commands
+from discord.ui import View, Button
 
-# =========================
-# CONFIG (YOUR CORRECT ONES)
-# =========================
+# =========================================
+# CONFIG (EDIT THESE)
+# =========================================
 GUILD_ID = 1469740655520780631
 STAFF_ROLE_ID = 1469755118634270864
 TICKET_CATEGORY_ID = 1469766438238687496
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN env var (Railway Variables -> DISCORD_TOKEN)")
+SITE_URL = "https://neontiers.vercel.app"
+COOLDOWN_DAYS = 14
 
-# =========================
-# COOLDOWN CONFIG (14 days)
-# =========================
-COOLDOWN_FILE = "ticket_cooldowns.json"
-COOLDOWN_SECONDS = 14 * 24 * 60 * 60  # 14 days
-
-# =========================
-# TICKET SYSTEM CONFIG
-# =========================
-MODES = [
-    "Vanilla", "UHC", "Pot", "NethPot", "SMP",
-    "Sword", "Axe", "Mace", "Cart", "Creeper",
-    "DiaSMP", "OGVanilla", "ShieldlessUHC",
-    "Spear Elytra", "Spear Mace",  # ✅ includes the two spear modes
-]
-
-# Mode -> ping role ID (includes your new spear pings)
-MODE_PING_ROLE_IDS = {
+# Gamemode -> ping role ID (these get pinged on ticket create)
+GAMEMODE_PING_ROLES = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
     "Axe": 1469763738889486518,
@@ -45,402 +31,355 @@ MODE_PING_ROLE_IDS = {
     "Vanilla": 1469763891226480926,
     "OGVanilla": 1469764329460203571,
     "ShieldlessUHC": 1469766017243807865,
+    "SpearElytra": 1469968762575912970,
+    "SpearMace": 1469968704203788425,
     "Cart": 1469763920871952435,
     "DiaSMP": 1469763946968911893,
     "Creeper": 1469764200812249180,
-
-    # ✅ NEW spear ping roles you provided
-    "Spear Mace": 1469968704203788425,
-    "Spear Elytra": 1469968762575912970,
 }
 
-# =========================
-# TESTRESULT CONFIG
-# =========================
-HISTORY_FILE = "test_history.json"
-
-# Who can use /testresult:
-# - admins always
-# - plus: STAFF_ROLE_ID
-ALLOWED_ROLE_IDS = {STAFF_ROLE_ID}
-
-# Choices for /testresult (auto from MODES)
-GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODES]
-
-# Hungarian display -> stored value
-RANKS = [
-    ("Nem rangsorolt", "Unranked"),
-    ("Alacsony Tier 5", "Low Tier 5"),
-    ("Magas Tier 5", "High Tier 5"),
-    ("Alacsony Tier 4", "Low Tier 4"),
-    ("Magas Tier 4", "High Tier 4"),
-    ("Alacsony Tier 3", "Low Tier 3"),
-    ("Magas Tier 3", "High Tier 3"),
-    ("Alacsony Tier 2", "Low Tier 2"),
-    ("Magas Tier 2", "High Tier 2"),
-    ("Alacsony Tier 1", "Low Tier 1"),
-    ("Magas Tier 1", "High Tier 1"),
+GAMEMODES = [
+    "Vanilla", "UHC", "Pot", "NethPot", "SMP",
+    "Sword", "Axe", "Mace", "Cart", "Creeper",
+    "DiaSMP", "OGVanilla", "ShieldlessUHC",
+    "SpearMace", "SpearElytra",
 ]
-RANK_CHOICES = [app_commands.Choice(name=hu, value=val) for hu, val in RANKS]
-RANK_VALUE_TO_HU = {val: hu for hu, val in RANKS}
+
+RANKS = ["Unranked", "LT5", "HT5", "LT4", "HT4", "LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
+
+# Where we persist data (cooldowns + open tickets + prev ranks)
+DATA_FILE = "data.json"
 
 
-# =========================
-# HELPERS
-# =========================
-def slugify(s: str) -> str:
-    s = s.strip().lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    s = re.sub(r"-{2,}", "-", s).strip("-")
-    return s[:20] if len(s) > 20 else s
+# =========================================
+# STORAGE
+# =========================================
+_storage_lock = asyncio.Lock()
+_storage = {
+    "cooldowns": {},   # user_id -> mode -> last_closed_unix
+    "open": {},        # channel_id -> { "user_id": int, "mode": str }
+    "prev_ranks": {}   # mc_name_lower -> mode -> rank
+}
 
-def ticket_channel_name(mode: str, user: discord.Member) -> str:
-    base = f"ticket-{slugify(mode)}-{slugify(user.name)}"
-    return base[:90]
+def _now_unix() -> int:
+    return int(time.time())
 
-def get_ticket_channel_for_mode(guild: discord.Guild, user_id: int, mode: str) -> discord.TextChannel | None:
-    needle_owner = f"ticket_owner:{user_id}"
-    needle_mode = f"mode:{mode}"
-    for ch in guild.text_channels:
-        if not ch.topic:
-            continue
-        if needle_owner in ch.topic and needle_mode in ch.topic:
-            return ch
-    return None
-
-def mc_avatar(username: str) -> str:
-    u = username.strip().replace(" ", "")
-    return f"https://mc-heads.net/avatar/{u}/128"
-
-def sanitize_player_key(name: str) -> str:
-    return re.sub(r"\s+", "", name.strip().lower())
-
-def load_history() -> dict:
-    if not os.path.exists(HISTORY_FILE):
-        return {}
+def _load_storage():
+    global _storage
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                _storage = json.load(f)
     except Exception:
-        return {}
+        # if file is broken, keep defaults
+        pass
 
-def save_history(data: dict) -> None:
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-def can_use_testresult(interaction: discord.Interaction) -> bool:
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        return False
-    member: discord.Member = interaction.user
-    if member.guild_permissions.administrator:
-        return True
-    return any(r.id in ALLOWED_ROLE_IDS for r in member.roles)
-
-def load_cooldowns() -> dict:
-    if not os.path.exists(COOLDOWN_FILE):
-        return {}
+def _save_storage():
     try:
-        with open(COOLDOWN_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(_storage, f, ensure_ascii=False, indent=2)
     except Exception:
-        return {}
+        pass
 
-def save_cooldowns(data: dict) -> None:
-    with open(COOLDOWN_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
-def cooldown_key(user_id: int, mode: str) -> str:
-    return f"{user_id}:{mode}"
+# =========================================
+# WEB POST
+# =========================================
+def post_test_to_site(username: str, gamemode: str, rank: str, tester: str = "") -> tuple[bool, str]:
+    key = os.getenv("BOT_API_KEY", "")
+    if not key:
+        return False, "BOT_API_KEY env hiányzik a botnál."
 
-def format_remaining(seconds_left: int) -> str:
-    if seconds_left < 0:
-        seconds_left = 0
-    days = seconds_left // 86400
-    hours = (seconds_left % 86400) // 3600
-    mins = (seconds_left % 3600) // 60
+    url = f"{SITE_URL}/api/tests"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    payload = {
+        "username": username,
+        "gamemode": gamemode,
+        "rank": rank,
+        "tester": tester,
+    }
+
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return False, f"API {r.status_code}: {r.text[:250]}"
+        return True, "OK"
+    except Exception as e:
+        return False, f"Request failed: {e}"
+
+
+# =========================================
+# DISCORD BOT
+# =========================================
+class NeoTiersBot(discord.Client):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.guilds = True
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        _load_storage()
+
+        # Persistent views
+        self.add_view(TicketPanelView())
+        self.add_view(CloseTicketView())
+
+        guild = discord.Object(id=GUILD_ID)
+        await self.tree.sync(guild=guild)
+
+    async def on_ready(self):
+        print(f"Logged in as {self.user} (id={self.user.id})")
+
+
+bot = NeoTiersBot()
+
+
+# =========================================
+# PERMISSION / UTILS
+# =========================================
+def is_staff(member: discord.Member) -> bool:
+    return any(r.id == STAFF_ROLE_ID for r in member.roles) or member.guild_permissions.administrator
+
+def human_remaining(seconds: int) -> str:
+    if seconds <= 0:
+        return "0 mp"
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    mins = (seconds % 3600) // 60
     if days > 0:
         return f"{days} nap {hours} óra"
     if hours > 0:
         return f"{hours} óra {mins} perc"
     return f"{mins} perc"
 
+def safe_channel_name(mode: str, user: discord.Member) -> str:
+    base = f"{mode}-{user.name}".lower()
+    base = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in base)
+    if len(base) > 90:
+        base = base[:90]
+    return f"ticket-{base}"
 
-# =========================
-# VIEWS (PERSISTENT)
-# =========================
-class CloseTicketView(discord.ui.View):
+async def can_open_mode(user_id: int, mode: str) -> tuple[bool, str]:
+    async with _storage_lock:
+        # Prevent opening same mode if already open
+        for ch_id, info in _storage.get("open", {}).items():
+            if int(info.get("user_id", 0)) == user_id and info.get("mode") == mode:
+                return False, "Van már nyitott ticketed ebből a játékmódból."
+
+        # Cooldown check
+        last = _storage.get("cooldowns", {}).get(str(user_id), {}).get(mode, 0)
+        if last:
+            now = _now_unix()
+            cd_seconds = COOLDOWN_DAYS * 86400
+            remain = (last + cd_seconds) - now
+            if remain > 0:
+                return False, f"Erre a módra még cooldown van: {human_remaining(remain)}"
+
+    return True, "OK"
+
+
+# =========================================
+# TICKET VIEWS
+# =========================================
+class TicketPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Ticket zárás", style=discord.ButtonStyle.danger, custom_id="neotickets:close")
-    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        guild = interaction.guild
-        channel = interaction.channel
-
-        if guild is None or not isinstance(channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member):
-            await interaction.followup.send("❌ Hibás környezet (guild/channel).", ephemeral=True)
-            return
-
-        me = guild.me or guild.get_member(interaction.client.user.id)
-        if me is None:
-            await interaction.followup.send("❌ Nem találom a bot membert (guild.me).", ephemeral=True)
-            return
-
-        perms = channel.permissions_for(me)
-        if not perms.manage_channels:
-            await interaction.followup.send(
-                "❌ Nem tudom törölni a csatornát: **Manage Channels** hiányzik ebben a csatornában/kategóriában.",
-                ephemeral=True
-            )
-            return
-
-        staff_role = guild.get_role(STAFF_ROLE_ID)
-        is_staff = interaction.user.guild_permissions.administrator or (staff_role and staff_role in interaction.user.roles)
-        is_owner = channel.topic and f"ticket_owner:{interaction.user.id}" in channel.topic
-
-        if not (is_staff or is_owner):
-            await interaction.followup.send("❌ Nincs jogod bezárni ezt a ticketet.", ephemeral=True)
-            return
-
-        # ===== Set cooldown for the ticket owner + mode (starts on close)
-        topic = channel.topic or ""
-        m_owner = re.search(r"ticket_owner:(\d+)", topic)
-        m_mode = re.search(r"mode:([^|]+)", topic)
-        owner_id = int(m_owner.group(1)) if m_owner else None
-        mode = m_mode.group(1).strip() if m_mode else None
-
-        if owner_id and mode:
-            cds = load_cooldowns()
-            cds[cooldown_key(owner_id, mode)] = int(time.time()) + COOLDOWN_SECONDS
-            save_cooldowns(cds)
-
-        await interaction.followup.send("✅ Ticket zárása... (törlés 3 mp múlva)", ephemeral=True)
-        try:
-            await channel.send("🔒 Ticket lezárva. A csatorna 3 mp múlva törlődik.")
-        except Exception:
-            pass
-
-        await asyncio.sleep(3)
-
-        try:
-            await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
-        except discord.Forbidden:
-            try:
-                await channel.send("❌ 403: Nem tudtam törölni (permission).")
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                await channel.send(f"❌ Nem tudtam törölni: {type(e).__name__}: {e}")
-            except Exception:
-                pass
+        # Buttons (no icons; Discord buttons text only)
+        # Layout: Discord auto-wraps.
+        for mode in [
+            "Vanilla", "UHC", "Pot", "NethPot", "SMP",
+            "Sword", "Axe", "Mace", "Cart", "Creeper",
+            "DiaSMP", "OGVanilla", "ShieldlessUHC",
+            "SpearMace", "SpearElytra"
+        ]:
+            self.add_item(OpenTicketButton(mode))
 
 
-class TicketPanelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        for mode in MODES:
-            self.add_item(TicketModeButton(mode))
-
-
-class TicketModeButton(discord.ui.Button):
+class OpenTicketButton(Button):
     def __init__(self, mode: str):
-        super().__init__(
-            label=mode,
-            style=discord.ButtonStyle.primary,
-            custom_id=f"neotickets:open:{slugify(mode)}"
-        )
+        super().__init__(label=mode, style=discord.ButtonStyle.primary, custom_id=f"open_ticket:{mode}")
         self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.followup.send("Csak szerveren használható.", ephemeral=True)
+        if interaction.guild is None:
+            await interaction.followup.send("❌ Ezt csak szerveren lehet használni.", ephemeral=True)
+            return
+        if interaction.guild.id != GUILD_ID:
+            await interaction.followup.send("❌ Rossz szerver.", ephemeral=True)
+            return
+
+        ok, reason = await can_open_mode(interaction.user.id, self.mode)
+        if not ok:
+            await interaction.followup.send(f"🔒 {reason}", ephemeral=True)
             return
 
         guild = interaction.guild
-        user = interaction.user
-        now = int(time.time())
-
-        # ===== 14-day cooldown per user+mode
-        cds = load_cooldowns()
-        until = int(cds.get(cooldown_key(user.id, self.mode), 0))
-        if until > now:
-            remaining = format_remaining(until - now)
-            await interaction.followup.send(
-                f"⏳ **{self.mode}** cooldown aktív.\n"
-                f"Új ticketet csak **{remaining}** múlva tudsz nyitni.",
-                ephemeral=True
-            )
-            return
-
-        # ===== only block SAME gamemode open tickets
-        existing = get_ticket_channel_for_mode(guild, user.id, self.mode)
-        if existing:
-            await interaction.followup.send(
-                f"❌ Már van nyitott ticketed ebben a játékmódban: **{self.mode}**.\n"
-                f"Zárd be előbb, és utána nyithatsz újat.",
-                ephemeral=True
-            )
-            return
-
         category = guild.get_channel(TICKET_CATEGORY_ID)
-        if not isinstance(category, discord.CategoryChannel):
-            await interaction.followup.send("⚠️ Hibás TICKET_CATEGORY_ID (nem Category).", ephemeral=True)
+        if category is None or not isinstance(category, discord.CategoryChannel):
+            await interaction.followup.send("❌ Ticket kategória rosszul van beállítva.", ephemeral=True)
             return
 
         staff_role = guild.get_role(STAFF_ROLE_ID)
         if staff_role is None:
-            await interaction.followup.send("⚠️ Hibás STAFF_ROLE_ID (nincs ilyen role).", ephemeral=True)
+            await interaction.followup.send("❌ STAFF_ROLE_ID rossz.", ephemeral=True)
             return
 
-        me = guild.me or guild.get_member(interaction.client.user.id)
-        if me is None:
-            await interaction.followup.send("⚠️ Bot member hiba (guild.me).", ephemeral=True)
-            return
-
-        if not category.permissions_for(me).manage_channels:
-            await interaction.followup.send(
-                "❌ A bot nem tud csatornát létrehozni ebben a kategóriában.\n"
-                "Fix: Tickets kategória permission → bot role: ✅ View Channel + ✅ Manage Channels",
-                ephemeral=True
-            )
-            return
-
+        # Overwrites: only opener + staff
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-            user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-            me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, embed_links=True, attach_files=True),
         }
-
-        ch_name = ticket_channel_name(self.mode, user)
 
         try:
             channel = await guild.create_text_channel(
-                name=ch_name,
+                name=safe_channel_name(self.mode, interaction.user),
                 category=category,
                 overwrites=overwrites,
-                topic=f"ticket_owner:{user.id} | mode:{self.mode}",
-                reason=f"Ticket opened by {user} ({user.id}) - {self.mode}"
+                topic=f"NeoTiers Ticket | mode={self.mode} | user_id={interaction.user.id}",
             )
         except discord.Forbidden:
-            await interaction.followup.send(
-                "❌ Missing Permissions: a bot nem tud csatornát létrehozni itt (kategória/role deny).",
-                ephemeral=True
-            )
+            await interaction.followup.send("❌ A botnak nincs joga csatornát létrehozni ebben a kategóriában.", ephemeral=True)
             return
+        except Exception as e:
+            await interaction.followup.send(f"❌ Hiba csatorna létrehozásnál: {e}", ephemeral=True)
+            return
+
+        # Store open ticket mapping
+        async with _storage_lock:
+            _storage.setdefault("open", {})[str(channel.id)] = {"user_id": interaction.user.id, "mode": self.mode}
+            _save_storage()
+
+        # Ping role for this mode, fallback ping staff role
+        ping_role_id = GAMEMODE_PING_ROLES.get(self.mode)
+        ping_text = f"<@&{ping_role_id}>" if ping_role_id else f"<@&{STAFF_ROLE_ID}>"
 
         embed = discord.Embed(
             title="Teszt kérés",
-            description=(
-                "Ticket nyitva a kiválasztott játékmódhoz.\n\n"
-                f"**Játékmód:** `{self.mode}`\n"
-                f"**Nyitotta:** {user.mention}\n\n"
-                "Írj ide részleteket, staff hamarosan jön."
-            ),
+            description="Kattints a **Close** gombra, ha vége a tesztnek.\n"
+                        "A cooldown csak lezárás után indul (14 nap / mód).",
             color=discord.Color.blurple()
         )
+        embed.add_field(name="Játékmód", value=self.mode, inline=True)
+        embed.add_field(name="Nyitotta", value=f"<@{interaction.user.id}>", inline=True)
+        embed.set_footer(text="NeoTiers Ticket System")
 
-        ping_role_id = MODE_PING_ROLE_IDS.get(self.mode)
-        ping_role = guild.get_role(ping_role_id) if ping_role_id else None
-
-        pings = [user.mention]
-        if ping_role:
-            pings.append(ping_role.mention)
-        else:
-            pings.append(staff_role.mention)
-
-        await channel.send(content=" ".join(pings), embed=embed, view=CloseTicketView())
-        await interaction.followup.send(f"✅ Ticket megnyitva: {channel.mention}", ephemeral=True)
+        await channel.send(content=ping_text, embed=embed, view=CloseTicketView())
+        await interaction.followup.send(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
 
-# =========================
-# BOT
-# =========================
-class NeoTiersBot(discord.Client):
+class CloseTicketView(View):
     def __init__(self):
-        intents = discord.Intents.default()
-        intents.guilds = True
-        intents.members = True
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
-
-    async def setup_hook(self):
-        self.add_view(TicketPanelView())
-        self.add_view(CloseTicketView())
-
-        guild = discord.Object(id=GUILD_ID)
-        await self.tree.sync(guild=guild)
-        print(f"Slash commands synced to guild {GUILD_ID}")
-
-bot = NeoTiersBot()
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user} (id={bot.user.id})")
-
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    print("APP COMMAND ERROR:", repr(error))
-    try:
-        msg = f"❌ Hiba: {error}"
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-    except Exception:
-        pass
+        super().__init__(timeout=None)
+        self.add_item(CloseTicketButton())
 
 
-# =========================
-# COMMAND: TICKET PANEL
-# =========================
-@bot.tree.command(name="ticketpanel", description="(Admin) Kirakja a NeoTiers ticket panelt.")
-@app_commands.guilds(discord.Object(id=GUILD_ID))
+class CloseTicketButton(Button):
+    def __init__(self):
+        super().__init__(label="Ticket zárása", style=discord.ButtonStyle.danger, custom_id="close_ticket")
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None or interaction.channel is None:
+            await interaction.followup.send("❌ Ez csak szerveren működik.", ephemeral=True)
+            return
+
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.followup.send("❌ Nem szöveg csatorna.", ephemeral=True)
+            return
+
+        # Determine owner/mode from storage
+        async with _storage_lock:
+            info = _storage.get("open", {}).get(str(channel.id))
+
+        if not info:
+            # if not tracked, still allow staff to delete
+            if not is_staff(interaction.user):
+                await interaction.followup.send("❌ Nincs hozzáférés.", ephemeral=True)
+                return
+            try:
+                await interaction.followup.send("✅ Zárás... (3 mp)", ephemeral=True)
+                await asyncio.sleep(3)
+                await channel.delete(reason="Ticket closed (untracked).")
+            except discord.Forbidden:
+                await interaction.followup.send("❌ A botnak nincs joga törölni a csatornát.", ephemeral=True)
+            return
+
+        owner_id = int(info.get("user_id", 0))
+        mode = info.get("mode", "Unknown")
+
+        # Only owner or staff can close
+        if interaction.user.id != owner_id and not is_staff(interaction.user):
+            await interaction.followup.send("❌ Ezt csak a ticket nyitója vagy staff zárhatja.", ephemeral=True)
+            return
+
+        # Set cooldown + remove open mapping
+        async with _storage_lock:
+            _storage.setdefault("cooldowns", {}).setdefault(str(owner_id), {})[mode] = _now_unix()
+            _storage.setdefault("open", {}).pop(str(channel.id), None)
+            _save_storage()
+
+        try:
+            await interaction.followup.send("✅ Ticket zárva. 3 mp múlva törlöm a csatornát.", ephemeral=True)
+            await asyncio.sleep(3)
+            await channel.delete(reason=f"Ticket closed | mode={mode} | owner={owner_id}")
+        except discord.Forbidden:
+            await interaction.followup.send("❌ A botnak nincs joga törölni a csatornát (Manage Channels kell).", ephemeral=True)
+
+
+# =========================================
+# SLASH COMMANDS
+# =========================================
+@bot.tree.command(name="ticketpanel", description="Kirakja a ticket panelt (csak staff).", guild=discord.Object(id=GUILD_ID))
 async def ticketpanel(interaction: discord.Interaction):
-    if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Csak admin rakhat ki panelt.", ephemeral=True)
+    if not isinstance(interaction.user, discord.Member) or not is_staff(interaction.user):
+        await interaction.response.send_message("❌ Nincs hozzáférés.", ephemeral=True)
         return
 
     embed = discord.Embed(
         title="Teszt kérés",
-        description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
+        description="Kattints egy gombra, hogy ticketet nyiss a választott játékmódból.\n"
+                    f"Cooldown: **{COOLDOWN_DAYS} nap / mód** (lezárás után).",
         color=discord.Color.blurple()
     )
     await interaction.response.send_message(embed=embed, view=TicketPanelView())
 
 
-# =========================
-# COMMAND: RESYNC (optional helper)
-# =========================
-@bot.tree.command(name="resync", description="(Admin) Slash parancsok újraszinkronizálása ehhez a szerverhez.")
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-async def resync(interaction: discord.Interaction):
-    if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Csak admin használhatja.", ephemeral=True)
-        return
+@bot.tree.command(name="pingapi", description="Teszt: küld egy próba POST-ot a weboldalra.", guild=discord.Object(id=GUILD_ID))
+async def pingapi(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    await interaction.followup.send("✅ Újraszinkronizálva.", ephemeral=True)
+
+    ok, msg = post_test_to_site(
+        username="debugUser",
+        gamemode="Mace",
+        rank="HT4",
+        tester=str(interaction.user.id)
+    )
+
+    if ok:
+        await interaction.followup.send("✅ POST sikeres! Nézd meg: https://neontiers.vercel.app/api/tests", ephemeral=True)
+    else:
+        await interaction.followup.send(f"❌ POST nem ment: {msg}", ephemeral=True)
 
 
-# =========================
-# COMMAND: TESTRESULT (MCTIERS)
-# =========================
-@bot.tree.command(name="testresult", description="MCTIERS teszt eredmény (előző rang automatikus, nincs region).")
-@app_commands.guilds(discord.Object(id=GUILD_ID))
+@bot.tree.command(name="testresult", description="Teszt eredmény (előző rang automatikus + web sync).", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(
-    testedplayer="Tesztelt játékos (Minecraft név, nem Discord user)",
-    tester="Tesztelő (Discord user)",
-    username="Minecraft név a skin/fejhez",
+    testedplayer="Minecraft név (nem Discord név)",
+    tester="Tesztelő Discord tag",
+    username="Skin név (általában ugyanaz, mint a MC név)",
     gamemode="Játékmód",
-    rank_earned="Elért rang",
+    rank_earned="Elért rang"
 )
-@app_commands.choices(gamemode=GAMEMODE_CHOICES, rank_earned=RANK_CHOICES)
+@app_commands.choices(
+    gamemode=[app_commands.Choice(name=m, value=m) for m in GAMEMODES],
+    rank_earned=[app_commands.Choice(name=r, value=r) for r in RANKS],
+)
 async def testresult(
     interaction: discord.Interaction,
     testedplayer: str,
@@ -449,43 +388,54 @@ async def testresult(
     gamemode: app_commands.Choice[str],
     rank_earned: app_commands.Choice[str],
 ):
-    if not can_use_testresult(interaction):
-        await interaction.response.send_message("❌ Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+    # permission: staff only
+    if not isinstance(interaction.user, discord.Member) or not is_staff(interaction.user):
+        await interaction.response.send_message("❌ Nincs hozzáférés.", ephemeral=True)
         return
 
-    await interaction.response.defer()
+    await interaction.response.defer()  # avoid "app didn't respond"
 
-    history = load_history()
-    player_key = sanitize_player_key(testedplayer)
+    mc_key = testedplayer.strip().lower()
     mode = gamemode.value
+    earned = rank_earned.value
 
-    previous_value = "Unranked"
-    if player_key in history and isinstance(history[player_key], dict) and mode in history[player_key]:
-        previous_value = history[player_key][mode]
+    # get prev rank + update storage
+    async with _storage_lock:
+        prev = _storage.setdefault("prev_ranks", {}).setdefault(mc_key, {}).get(mode, "Unranked")
+        _storage["prev_ranks"][mc_key][mode] = earned
+        _save_storage()
 
-    history.setdefault(player_key, {})
-    history[player_key][mode] = rank_earned.value
-    save_history(history)
-
-    prev_hu = RANK_VALUE_TO_HU.get(previous_value, previous_value)
-    earned_hu = RANK_VALUE_TO_HU.get(rank_earned.value, rank_earned.value)
-
-    embed = discord.Embed(
-        title=f"{testedplayer} teszt eredménye 🏆",
-        color=discord.Color.red()
+    # send to website (earned rank)
+    ok, msg = post_test_to_site(
+        username=testedplayer.strip(),
+        gamemode=mode,
+        rank=earned,
+        tester=str(tester.id)
     )
-    embed.set_thumbnail(url=mc_avatar(username))
 
-    embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
-    embed.add_field(name="Játékmód:", value=mode, inline=False)
-    embed.add_field(name="Minecraft név:", value=username, inline=False)
-    embed.add_field(name="Előző rang:", value=prev_hu, inline=False)
-    embed.add_field(name="Elért rang:", value=earned_hu, inline=False)
+    emb = discord.Embed(
+        title=f"{testedplayer.strip()} — Teszt eredmény",
+        color=discord.Color.blurple()
+    )
+    emb.add_field(name="Tesztelő", value=f"<@{tester.id}>", inline=False)
+    emb.add_field(name="Játékmód", value=mode, inline=True)
+    emb.add_field(name="Előző rang", value=prev, inline=True)
+    emb.add_field(name="Elért rang", value=earned, inline=True)
+    emb.add_field(name="Skin név", value=username.strip(), inline=False)
 
-    await interaction.followup.send(embed=embed)
+    if ok:
+        emb.set_footer(text="✅ Web sync sikeres (neontiers.vercel.app)")
+    else:
+        emb.set_footer(text=f"⚠️ Web sync FAILED: {msg[:120]}")
+
+    await interaction.followup.send(embed=emb)
 
 
-# =========================
-# START
-# =========================
-bot.run(TOKEN)
+# =========================================
+# RUN
+# =========================================
+token = os.getenv("DISCORD_TOKEN", "")
+if not token:
+    raise RuntimeError("DISCORD_TOKEN env hiányzik (Discord bot token).")
+
+bot.run(token)
