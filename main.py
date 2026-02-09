@@ -1,23 +1,29 @@
+
+import os
 import discord
 from discord import app_commands
 from discord.ui import View, Button
-import os
 import aiohttp
 
+# =========================
+# ENV
+# =========================
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN env var missing!")
 
 # =========================
-# CONFIG
+# CONFIG (EDIT THESE)
 # =========================
 GUILD_ID = 1469740655520780631
 STAFF_ROLE_ID = 1469755118634270864
 TICKET_CATEGORY_ID = 1469766438238687496
 
+# Website API
 API_URL = "https://neontiers.vercel.app/api/tests"
-BOT_API_KEY = TOKEN  # csak a bot token
+BOT_API_KEY = TOKEN  # IGEN: csak a bot token
 
+# Ping roles per gamemode (ticket ping!)
 PING_ROLES = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
@@ -32,27 +38,29 @@ PING_ROLES = {
     "DiaSMP": 1469763946968911893,
     "Cart": 1469763920871952435,
     "Creeper": 1469764200812249180,
-    "SpearElytra": 1469968762575912970,
     "SpearMace": 1469968704203788425,
+    "SpearElytra": 1469968762575912970,
 }
 
-# Rank -> Hungarian label + short code + points
+# Rank (value = short code that goes to API) -> (HU label, points)
 RANKS = {
-    "Unranked": ("Unranked", "Unranked", 0),
-    "LT5": ("Alacsony Tier 5", "LT5", 1),
-    "HT5": ("Magas Tier 5", "HT5", 2),
-    "LT4": ("Alacsony Tier 4", "LT4", 3),
-    "HT4": ("Magas Tier 4", "HT4", 4),
-    "LT3": ("Alacsony Tier 3", "LT3", 5),
-    "HT3": ("Magas Tier 3", "HT3", 6),
-    "LT2": ("Alacsony Tier 2", "LT2", 7),
-    "HT2": ("Magas Tier 2", "HT2", 8),
-    "LT1": ("Alacsony Tier 1", "LT1", 9),
-    "HT1": ("Magas Tier 1", "HT1", 10),
+    "Unranked": ("Unranked", 0),
+    "LT5": ("Alacsony Tier 5", 1),
+    "HT5": ("Magas Tier 5", 2),
+    "LT4": ("Alacsony Tier 4", 3),
+    "HT4": ("Magas Tier 4", 4),
+    "LT3": ("Alacsony Tier 3", 5),
+    "HT3": ("Magas Tier 3", 6),
+    "LT2": ("Alacsony Tier 2", 7),
+    "HT2": ("Magas Tier 2", 8),
+    "LT1": ("Alacsony Tier 1", 9),
+    "HT1": ("Magas Tier 1", 10),
 }
+
+GAMEMODES = list(PING_ROLES.keys())
 
 # =========================
-# DISCORD
+# DISCORD SETUP
 # =========================
 intents = discord.Intents.default()
 intents.guilds = True
@@ -61,6 +69,9 @@ intents.members = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
+# =========================
+# HELPERS
+# =========================
 def has_staff_role(member: discord.Member) -> bool:
     return any(r.id == STAFF_ROLE_ID for r in member.roles)
 
@@ -78,8 +89,30 @@ def ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
         color=0x2b2d31
     )
 
+async def fetch_previous_rank(username: str, gamemode: str) -> str:
+    """Get previous rank for (username,gamemode) from API GET /api/tests."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(API_URL) as resp:
+                if resp.status != 200:
+                    return "Unranked"
+                data = await resp.json()
+                # expected: { tests: [...] }
+                for t in data.get("tests", []):
+                    if str(t.get("username", "")).strip().lower() == username.strip().lower() and str(t.get("gamemode", "")).strip() == gamemode:
+                        return str(t.get("rank", "Unranked")).strip() or "Unranked"
+    except Exception:
+        pass
+    return "Unranked"
+
+def rank_hu(rank_code: str) -> str:
+    return RANKS.get(rank_code, (rank_code, 0))[0]
+
+def rank_points(rank_code: str) -> int:
+    return RANKS.get(rank_code, (rank_code, 0))[1]
+
 # =========================
-# UI: CLOSE
+# UI: CLOSE TICKET (persistent)
 # =========================
 class CloseTicketView(View):
     def __init__(self):
@@ -88,7 +121,12 @@ class CloseTicketView(View):
 
 class CloseTicketButton(Button):
     def __init__(self):
-        super().__init__(label="Ticket bezárása", style=discord.ButtonStyle.danger, emoji="🗑️")
+        super().__init__(
+            label="Ticket bezárása",
+            style=discord.ButtonStyle.danger,
+            emoji="🗑️",
+            custom_id="ticket_close"
+        )
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -101,17 +139,21 @@ class CloseTicketButton(Button):
             await interaction.followup.send(f"❌ Hiba: {e}", ephemeral=True)
 
 # =========================
-# UI: TICKET PANEL
+# UI: TICKET PANEL (persistent)
 # =========================
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        for name in PING_ROLES.keys():
-            self.add_item(TicketButton(name))
+        for mode in GAMEMODES:
+            self.add_item(TicketButton(mode))
 
 class TicketButton(Button):
     def __init__(self, mode: str):
-        super().__init__(label=mode, style=discord.ButtonStyle.primary)
+        super().__init__(
+            label=mode,
+            style=discord.ButtonStyle.primary,
+            custom_id=f"ticket_mode_{mode}"
+        )
         self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
@@ -127,6 +169,7 @@ class TicketButton(Button):
             await interaction.followup.send("❌ Ticket kategória ID rossz vagy nem kategória.", ephemeral=True)
             return
 
+        # Same-gamemode duplicate block, different gamemode allowed
         topic_value = f"{interaction.user.id}:{self.mode}"
         for ch in category.text_channels:
             if ch.topic == topic_value:
@@ -158,19 +201,23 @@ class TicketButton(Button):
             await interaction.followup.send(f"❌ Hiba csatorna létrehozásnál: {e}", ephemeral=True)
             return
 
+        # Ping GAMEMODE role (not tester)
         ping_role_id = PING_ROLES.get(self.mode)
         ping_role = guild.get_role(ping_role_id) if ping_role_id else None
 
-        if ping_role:
-            await channel.send(f"{ping_role.mention} | Új teszt kérés!")
-        else:
-            await channel.send("⚠️ Ping role nem található ehhez a módhoz.")
+        try:
+            if ping_role:
+                await channel.send(f"{ping_role.mention} | Új teszt kérés!")
+            else:
+                await channel.send("⚠️ Ping role nem található ehhez a módhoz.")
+        except Exception:
+            pass
 
         await channel.send(embed=ticket_embed(self.mode, interaction.user), view=CloseTicketView())
         await interaction.followup.send(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
 # =========================
-# COMMAND: ticketpanel
+# SLASH: /ticketpanel
 # =========================
 @tree.command(name="ticketpanel", description="Teszt kérő panel küldése", guild=discord.Object(id=GUILD_ID))
 async def ticketpanel(interaction: discord.Interaction):
@@ -193,48 +240,50 @@ async def ticketpanel(interaction: discord.Interaction):
     await interaction.followup.send("✅ Panel elküldve.", ephemeral=True)
 
 # =========================
-# COMMAND: testresult (POST → web + embed)
+# /testresult (OLD STYLE but connected)
+# username = mc name
+# gamemode = CHOICE
+# rank = CHOICE
+# tester = implicit interaction.user
+# previous rank = automatic from website
 # =========================
-@tree.command(name="testresult", description="Teszt eredmény mentése + weboldal frissítés", guild=discord.Object(id=GUILD_ID))
+
+# choices
+GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in GAMEMODES]
+RANK_CHOICES = [app_commands.Choice(name=f"{rank_hu(code)} ({code})", value=code) for code in RANKS.keys()]
+
+@tree.command(
+    name="testresult",
+    description="Teszt eredmény mentése + weboldal frissítése (választható mód/rang)",
+    guild=discord.Object(id=GUILD_ID)
+)
 @app_commands.describe(
     username="Minecraft név (skin ehhez)",
-    gamemode="Játékmód (pl. Mace)",
-    rank="Elért rang (pl. LT3)"
+    gamemode="Játékmód",
+    rank="Elért rang"
 )
-async def testresult(interaction: discord.Interaction, username: str, gamemode: str, rank: str):
+@app_commands.choices(gamemode=GAMEMODE_CHOICES, rank=RANK_CHOICES)
+async def testresult(
+    interaction: discord.Interaction,
+    username: str,
+    gamemode: app_commands.Choice[str],
+    rank: app_commands.Choice[str],
+):
     await interaction.response.defer(ephemeral=True)
 
-    gm = gamemode.strip()
-    rk = rank.strip()
+    gm = gamemode.value
+    new_rank_code = rank.value
 
-    # fallback
-    prev_short = "Unranked"
-    prev_hu = "Unranked"
+    prev_rank_code = await fetch_previous_rank(username, gm)
 
-    # Előző rang lekérése az API-ból (ha van)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(API_URL) as r:
-                data = await r.json()
-                for t in data.get("tests", []):
-                    if t.get("username") == username and t.get("gamemode") == gm:
-                        prev_short = t.get("rank", "Unranked")
-                        break
-    except Exception:
-        pass
-
-    prev_hu = RANKS.get(prev_short, ("Unranked", prev_short, 0))[0]
-    new_hu, new_short, new_pts = RANKS.get(rk, (rk, rk, 0))
-
-    # POST (upsert a weboldalon kezeli a duplikációt)
+    # POST to website (upsert should be handled server-side)
     payload = {
-        "username": username,
+        "username": username.strip(),
         "gamemode": gm,
-        "rank": new_short,
+        "rank": new_rank_code,
         "tester": interaction.user.name
     }
 
-    ok = False
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -242,8 +291,7 @@ async def testresult(interaction: discord.Interaction, username: str, gamemode: 
                 json=payload,
                 headers={"Authorization": f"Bearer {BOT_API_KEY}"}
             ) as resp:
-                ok = (resp.status == 200)
-                if not ok:
+                if resp.status != 200:
                     text = await resp.text()
                     await interaction.followup.send(f"❌ Web API hiba: {resp.status}\n{text}", ephemeral=True)
                     return
@@ -251,7 +299,11 @@ async def testresult(interaction: discord.Interaction, username: str, gamemode: 
         await interaction.followup.send(f"❌ Hálózati/API hiba: {e}", ephemeral=True)
         return
 
-    # ✅ Publikus embed (ez hiányzott “rendesen”)
+    prev_hu = rank_hu(prev_rank_code)
+    new_hu = rank_hu(new_rank_code)
+    pts = rank_points(new_rank_code)
+
+    # Public embed (results message)
     skin_url = f"https://mc-heads.net/avatar/{username}/64"
 
     embed = discord.Embed(
@@ -265,10 +317,10 @@ async def testresult(interaction: discord.Interaction, username: str, gamemode: 
     embed.add_field(name="Előző rang:", value=prev_hu, inline=False)
     embed.add_field(name="Elért rang:", value=new_hu, inline=False)
 
-    # ✅ ez a “zöld pipás” szöveg most már az embedben is megjelenik normálisan
+    # Summary also in embed (so it appears “rendesen”)
     embed.add_field(
         name="Összegzés",
-        value=f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_short}** → Elért: **{new_short}** | **+{new_pts} pont**",
+        value=f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank_code}** → Elért: **{new_rank_code}** | **+{pts} pont**",
         inline=False
     )
 
@@ -277,14 +329,21 @@ async def testresult(interaction: discord.Interaction, username: str, gamemode: 
     except Exception:
         pass
 
+    # Ephemeral status (the green one)
     await interaction.followup.send(
-        f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_short}** → Elért: **{new_short}** | **+{new_pts} pont**",
+        f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank_code}** → Elért: **{new_rank_code}** | **+{pts} pont**",
         ephemeral=True
     )
 
 # =========================
+# READY
+# =========================
 @client.event
 async def on_ready():
+    # persistent views
+    client.add_view(TicketView())
+    client.add_view(CloseTicketView())
+
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {client.user}")
 
