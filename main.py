@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ui import View, Button
 import os
-import requests
+import aiohttp
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -11,7 +11,7 @@ STAFF_ROLE_ID = 1469755118634270864
 TICKET_CATEGORY_ID = 1469766438238687496
 
 API_URL = "https://neontiers.vercel.app/api/tests"
-BOT_API_KEY = TOKEN  # ugyanaz
+BOT_API_KEY = TOKEN  # igen, CSAK a bot token
 
 PING_ROLES = {
     "Sword": 1469763677141074125,
@@ -47,7 +47,7 @@ async def on_ready():
     print(f"Logged in as {client.user}")
 
 # =========================
-# TICKET PANEL
+# TICKET UI
 # =========================
 class TicketView(View):
     def __init__(self):
@@ -64,7 +64,6 @@ class TicketButton(Button):
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
 
-        # van-e már ticket ebből a módból
         for ch in category.text_channels:
             if ch.topic == f"{interaction.user.id}:{self.mode}":
                 await interaction.response.send_message(
@@ -113,7 +112,7 @@ class CloseTicketButton(Button):
         await interaction.channel.delete(delay=3)
 
 # =========================
-# PANEL PARANCS
+# PANEL COMMAND
 # =========================
 @tree.command(name="ticketpanel", description="Teszt kérő panel", guild=discord.Object(id=GUILD_ID))
 async def ticketpanel(interaction: discord.Interaction):
@@ -128,7 +127,7 @@ async def ticketpanel(interaction: discord.Interaction):
     await interaction.response.send_message("✅ Panel elküldve.", ephemeral=True)
 
 # =========================
-# TESTRESULT → WEB
+# TESTRESULT → WEB API
 # =========================
 @tree.command(name="testresult", description="Teszt eredmény rögzítése", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(
@@ -149,19 +148,18 @@ async def testresult(
         "tester": interaction.user.name
     }
 
-    r = requests.post(
-        API_URL,
-        headers={
-            "Authorization": f"Bearer {BOT_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json=payload
-    )
-
-    if r.status_code == 200:
-        await interaction.response.send_message("✅ Teszt eredmény elküldve a weboldalra.")
-    else:
-        await interaction.response.send_message("❌ Hiba a web API-nál.")
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            API_URL,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {BOT_API_KEY}"
+            }
+        ) as resp:
+            if resp.status == 200:
+                await interaction.response.send_message("✅ Teszt eredmény elküldve a weboldalra.")
+            else:
+                await interaction.response.send_message("❌ Web API hiba.")
 
 # =========================
 client.run(TOKEN)
