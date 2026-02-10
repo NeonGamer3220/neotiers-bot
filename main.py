@@ -475,8 +475,11 @@ async def post_to_website(payload: dict) -> Tuple[bool, str]:
         return False, "BOT_API_KEY nincs beállítva."
 
     url = f"{WEBSITE_BASE_URL}/api/tests"
-    headers = {"Authorization": f"Bearer {BOT_API_KEY}", "Content-Type": "application/json"}
-
+    headers = {
+    "Authorization": f"Bearer {BOT_API_KEY}",
+    "x-api-key": BOT_API_KEY,
+    "Content-Type": "application/json",
+}
     try:
         assert http_session is not None
         async with http_session.post(url, json=payload, headers=headers, timeout=15) as resp:
