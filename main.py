@@ -3,33 +3,40 @@ import re
 import time
 import sqlite3
 import asyncio
+import traceback
 from typing import Optional, Dict, Tuple, Callable, Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from aiohttp import ClientSession
-from aiohttp import web
+from aiohttp import ClientSession, web
 
 # =========================
-# ENV CONFIG
+# ENV CONFIG (Railway / Hosting)
 # =========================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 
-GUILD_ID = int(os.getenv("GUILD_ID", "0"))
-STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "0"))
-TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "0"))
+# MUST be your server id:
+GUILD_ID = int(os.getenv("GUILD_ID", "1469740655520780631"))
 
+# Your saved config (you said these are correct):
+STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "1469755118634270864"))
+TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "1469766438238687496"))
+
+# Website integration
 WEBSITE_BASE_URL = os.getenv("WEBSITE_BASE_URL", "https://neontiers.vercel.app").rstrip("/")
 BOT_API_KEY = os.getenv("BOT_API_KEY", "").strip()
 
+# Extra allowed role IDs (optional, comma-separated)
 ALLOWED_ROLE_IDS = {
-    int(x.strip()) for x in os.getenv("ALLOWED_ROLE_IDS", "").split(",") if x.strip().isdigit()
+    int(x.strip())
+    for x in os.getenv("ALLOWED_ROLE_IDS", "").split(",")
+    if x.strip().isdigit()
 }
 
 # =========================
-# CONSTANTS (MODES / TIERS)
+# CONSTANTS
 # =========================
 MODE_LIST = [
     "Sword",
@@ -49,6 +56,7 @@ MODE_LIST = [
     "Cart",
 ]
 
+# Ping roles for tickets per mode
 MODE_PING_ROLE: Dict[str, int] = {
     "Mace": 1469763612452196375,
     "Sword": 1469763677141074125,
@@ -67,6 +75,7 @@ MODE_PING_ROLE: Dict[str, int] = {
     "Creeper": 1469764200812249180,
 }
 
+# Tier options (short form only)
 TIER_LIST = [
     "Unranked",
     "LT5",
@@ -113,6 +122,7 @@ def init_db():
     conn = db()
     cur = conn.cursor()
 
+    # Store last result per (player, mode) => so only 1 result per mode exists
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS tests (
@@ -127,6 +137,7 @@ def init_db():
         """
     )
 
+    # Prevent duplicate tickets of the same mode per user
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS open_tickets (
@@ -139,6 +150,7 @@ def init_db():
         """
     )
 
+    # 14 day cooldown per user per mode after closing
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS cooldowns (
@@ -166,6 +178,7 @@ def get_previous_tier(player: str, mode: str) -> str:
 def upsert_test(player: str, mode: str, tier: str, tester_id: int, tester_name: str) -> str:
     prev = get_previous_tier(player, mode)
     now = int(time.time())
+
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -255,7 +268,8 @@ def set_last_closed(user_id: int, mode: str, ts: int):
 
 def sanitize_mc_name(name: str) -> str:
     name = name.strip()
-    if not re.fullmatch(r"[A-Za-z0-9_]{3,16}", name):
+    # Accept typical MC usernames
+    if re.fullmatch(r"[A-Za-z0-9_]{3,16}", name):
         return name
     return name
 
@@ -271,14 +285,11 @@ tree = bot.tree
 
 http_session: Optional[ClientSession] = None
 
-GUILD_OBJ = discord.Object(id=GUILD_ID) if GUILD_ID else None
+GUILD_OBJ = discord.Object(id=GUILD_ID)
 
 
 def guild_only(func: Callable[..., Any]):
-    # Make commands appear instantly in that guild (no global caching)
-    if GUILD_OBJ:
-        return app_commands.guilds(GUILD_OBJ)(func)
-    return func
+    return app_commands.guilds(GUILD_OBJ)(func)
 
 
 def is_allowed_for_admin(interaction: discord.Interaction) -> bool:
@@ -296,9 +307,9 @@ def is_allowed_for_admin(interaction: discord.Interaction) -> bool:
 
 
 # =========================
-# WEB KEEPALIVE
+# HEALTH SERVER (keeps container alive)
 # =========================
-async def _health(request):
+async def _health(_request):
     return web.Response(text="ok")
 
 
@@ -324,7 +335,7 @@ class CloseTicketView(discord.ui.View):
         self.mode = mode
 
     @discord.ui.button(label="Ticket lezárása", style=discord.ButtonStyle.danger, custom_id="ticket_close")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def close(self, interaction: discord.Interaction, _button: discord.ui.Button):
         if not interaction.guild or not interaction.channel:
             return
 
@@ -348,7 +359,7 @@ class CloseTicketView(discord.ui.View):
             await channel.delete(reason="Ticket closed")
         except discord.Forbidden:
             try:
-                await channel.send("❌ Nincs jogom törölni ezt a csatornát. Adj a botnak **Csatornák kezelése** jogot.")
+                await channel.send("❌ Nincs jogom törölni a csatornát. Adj a botnak **Csatornák kezelése** jogot.")
             except Exception:
                 pass
 
@@ -372,6 +383,7 @@ class TicketButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             return
+
         guild = interaction.guild
         member: discord.Member = interaction.user
 
@@ -381,11 +393,12 @@ class TicketButton(discord.ui.Button):
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("❌ TICKET_CATEGORY_ID nem kategória csatornára mutat.", ephemeral=True)
+            await interaction.response.send_message("❌ TICKET_CATEGORY_ID nem kategória csatorna.", ephemeral=True)
             return
 
         mode = self.mode
 
+        # IMPORTANT: only block same-mode duplicates, allow other modes
         existing = has_open_ticket(member.id, mode)
         if existing:
             await interaction.response.send_message("Van már ticketed ebből a játékmódból!", ephemeral=True)
@@ -411,7 +424,9 @@ class TicketButton(discord.ui.Button):
         staff_role = guild.get_role(STAFF_ROLE_ID) if STAFF_ROLE_ID else None
         if staff_role:
             overwrites[staff_role] = discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
             )
 
         safe_name = re.sub(r"[^a-z0-9\-]", "", member.display_name.lower().replace(" ", "-"))[:16] or "user"
@@ -444,20 +459,20 @@ class TicketButton(discord.ui.Button):
         embed.add_field(name="Játékmód", value=mode, inline=True)
         embed.add_field(name="Kérő", value=member.mention, inline=True)
 
-        await channel.send(content=ping_text, embed=embed, view=CloseTicketView(opener_id=member.id, mode=mode))
+        await channel.send(
+            content=ping_text,
+            embed=embed,
+            view=CloseTicketView(opener_id=member.id, mode=mode),
+        )
         await interaction.response.send_message(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
 
 # =========================
-# /testresult (PUBLIC embed + website update)
+# WEBSITE POST
 # =========================
-MODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODE_LIST]
-TIER_CHOICES = [app_commands.Choice(name=t, value=t) for t in TIER_LIST]
-
-
 async def post_to_website(payload: dict) -> Tuple[bool, str]:
     if not BOT_API_KEY:
-        return False, "BOT_API_KEY nincs beállítva a botnál."
+        return False, "BOT_API_KEY nincs beállítva."
 
     url = f"{WEBSITE_BASE_URL}/api/tests"
     headers = {"Authorization": f"Bearer {BOT_API_KEY}", "Content-Type": "application/json"}
@@ -473,7 +488,15 @@ async def post_to_website(payload: dict) -> Tuple[bool, str]:
         return False, str(e)
 
 
-async def _handle_testresult(
+# =========================
+# /testresult + /testresults (alias)
+# asks: mc_name, tester, gamemode, tier
+# =========================
+MODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in MODE_LIST]
+TIER_CHOICES = [app_commands.Choice(name=t, value=t) for t in TIER_LIST]
+
+
+async def handle_testresult(
     interaction: discord.Interaction,
     mc_name: str,
     tester: discord.Member,
@@ -503,7 +526,7 @@ async def _handle_testresult(
     total_points = get_total_points(player)
     delta = TIER_POINTS.get(new_tier, 0) - TIER_POINTS.get(prev_tier, 0)
 
-    # PUBLIC embed – ezt látja mindenki
+    # PUBLIC EMBED (everyone sees this)
     skin_url = f"https://minotar.net/armor/bust/{player}/128.png"
     embed = discord.Embed(
         title=f"{player} teszt eredménye 🏆",
@@ -541,13 +564,12 @@ async def _handle_testresult(
         await interaction.followup.send(f"⚠️ Mentés hiba a weboldal felé ({msg})", ephemeral=True)
 
 
-# A TE kéréseid szerint: /testresult és /testresults is legyen
 @tree.command(name="testresult", description="Minecraft tier teszt eredmény (mentés + weboldal frissítés).")
 @app_commands.describe(
     mc_name="Minecraft név (ebből lesz skin a weboldalon)",
     tester="Ki tesztelte (Discord)",
     gamemode="Játékmód",
-    tier="Elért tier",
+    tier="Elért tier (LT3/HT2 stb.)",
 )
 @app_commands.choices(gamemode=MODE_CHOICES, tier=TIER_CHOICES)
 @guild_only
@@ -558,7 +580,7 @@ async def testresult(
     gamemode: app_commands.Choice[str],
     tier: app_commands.Choice[str],
 ):
-    await _handle_testresult(interaction, mc_name, tester, gamemode, tier)
+    await handle_testresult(interaction, mc_name, tester, gamemode, tier)
 
 
 @tree.command(name="testresults", description="Alias: ugyanaz, mint /testresult")
@@ -566,7 +588,7 @@ async def testresult(
     mc_name="Minecraft név (ebből lesz skin a weboldalon)",
     tester="Ki tesztelte (Discord)",
     gamemode="Játékmód",
-    tier="Elért tier",
+    tier="Elért tier (LT3/HT2 stb.)",
 )
 @app_commands.choices(gamemode=MODE_CHOICES, tier=TIER_CHOICES)
 @guild_only
@@ -577,7 +599,7 @@ async def testresults(
     gamemode: app_commands.Choice[str],
     tier: app_commands.Choice[str],
 ):
-    await _handle_testresult(interaction, mc_name, tester, gamemode, tier)
+    await handle_testresult(interaction, mc_name, tester, gamemode, tier)
 
 
 # =========================
@@ -609,13 +631,13 @@ async def ticketpanel(interaction: discord.Interaction):
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
 
-    # Sync to guild for instant command updates
-    if GUILD_ID:
-        try:
-            await tree.sync(guild=discord.Object(id=GUILD_ID))
-            print(f"Slash commands synced to guild {GUILD_ID}")
-        except Exception as e:
-            print("Command sync error:", e)
+    # Force guild sync so commands appear instantly in THIS server
+    try:
+        await tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"Slash commands synced to guild {GUILD_ID}")
+    except Exception as e:
+        print("Command sync error:", repr(e))
+        traceback.print_exc()
 
     # Persistent views
     bot.add_view(TicketPanelView())
@@ -623,19 +645,31 @@ async def on_ready():
 
 async def main():
     global http_session
+
     init_db()
     http_session = ClientSession()
 
-    await start_web_server()
+    try:
+        await start_web_server()
+    except Exception as e:
+        print("Health server error:", repr(e))
+        traceback.print_exc()
 
     try:
         await bot.start(DISCORD_TOKEN)
+    except Exception as e:
+        print("BOT START ERROR:", repr(e))
+        traceback.print_exc()
+        raise
     finally:
-        if http_session:
-            await http_session.close()
+        try:
+            if http_session:
+                await http_session.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
-        raise RuntimeError("DISCORD_TOKEN env missing!")
+        raise RuntimeError("DISCORD_TOKEN env missing or empty!")
     asyncio.run(main())
