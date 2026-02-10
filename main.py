@@ -20,7 +20,7 @@ TICKET_CATEGORY_ID = 1469766438238687496
 
 # Website API
 API_URL = "https://neontiers.vercel.app/api/tests"
-BOT_API_KEY = TOKEN  # csak a bot token
+BOT_API_KEY = TOKEN  # IGEN: ennyi, a bot tokenje
 
 # Ping roles per gamemode (ticket ping!)
 PING_ROLES = {
@@ -43,7 +43,7 @@ PING_ROLES = {
 
 GAMEMODES = list(PING_ROLES.keys())
 
-# Rank codes (AZT írjuk ki, NEM magyar szöveget)
+# Rank codes (KIÍRÁS: LT3 stb)
 RANK_CODES = [
     "Unranked",
     "LT5", "HT5",
@@ -53,7 +53,7 @@ RANK_CODES = [
     "LT1", "HT1",
 ]
 
-# pontozás (ha kell a zöld “+ pont” üzenethez)
+# pontozás
 RANK_POINTS = {
     "Unranked": 0,
     "LT5": 1, "HT5": 2,
@@ -96,7 +96,7 @@ def ticket_embed(mode: str, user: discord.Member) -> discord.Embed:
 async def fetch_previous_rank(mc_name: str, gamemode: str) -> str:
     """
     Előző rang lekérése a weboldal API-ból.
-    Végigmegy a tests listán és megkeresi (mc_name + gamemode) legutóbbi rankját.
+    Mivel a weboldal route.js most már UNIQUE módon tárol, itt elég a GET.
     """
     try:
         async with aiohttp.ClientSession() as session:
@@ -105,10 +105,7 @@ async def fetch_previous_rank(mc_name: str, gamemode: str) -> str:
                     return "Unranked"
                 data = await resp.json()
                 tests = data.get("tests", [])
-
-                # Ha a backend már "latest" jellegűt ad, akkor első találat elég.
-                # Ha nem, akkor a listát fordítva is nézhetjük. (biztosabb)
-                for t in reversed(tests):
+                for t in tests:
                     if str(t.get("username", "")).strip().lower() == mc_name.strip().lower() and str(t.get("gamemode", "")).strip() == gamemode:
                         r = str(t.get("rank", "Unranked")).strip() or "Unranked"
                         return r if r in RANK_CODES else "Unranked"
@@ -245,19 +242,15 @@ async def ticketpanel(interaction: discord.Interaction):
     await interaction.followup.send("✅ Panel elküldve.", ephemeral=True)
 
 # =========================
-# /testresult (AS YOU WANT)
-# mc_name (skin)
-# tester (user mention)
-# gamemode (choice)
-# tier (choice = LT3 etc)
-# previous rank auto from API
+# /testresult (4 paraméter)
+# PUBLIC EMBED A CSATORNÁBA + mentés
 # =========================
 GAMEMODE_CHOICES = [app_commands.Choice(name=m, value=m) for m in GAMEMODES]
 TIER_CHOICES = [app_commands.Choice(name=code, value=code) for code in RANK_CODES]
 
 @tree.command(
     name="testresult",
-    description="Teszt eredmény (mc_név + tesztelő + játékmód + tier) + weboldal mentés",
+    description="Teszt eredmény (mc név + tesztelő + játékmód + tier) + weboldal mentés",
     guild=discord.Object(id=GUILD_ID)
 )
 @app_commands.describe(
@@ -274,25 +267,21 @@ async def testresult(
     gamemode: app_commands.Choice[str],
     tier: app_commands.Choice[str],
 ):
-    await interaction.response.defer(ephemeral=True)
-
-    # permission
+    # jogosultság
     if not isinstance(interaction.user, discord.Member) or not has_staff_role(interaction.user):
-        await interaction.followup.send("❌ Nincs jogod használni (STAFF_ROLE_ID kell).", ephemeral=True)
+        await interaction.response.send_message("❌ Nincs jogod használni.", ephemeral=True)
         return
 
     gm = gamemode.value
-    new_rank = tier.value  # LT3 stb
-
-    # előző rang automatikus
+    new_rank = tier.value
     prev_rank = await fetch_previous_rank(mc_name, gm)
 
-    # POST to website
+    # mentés webre (UPSERT lesz, 1 gamemode / player)
     payload = {
         "username": mc_name.strip(),
         "gamemode": gm,
         "rank": new_rank,
-        "tester": str(tester.id),  # backendnek mindegy; weboldalon nem kell, de elküldjük
+        "tester": str(tester.id),
     }
 
     try:
@@ -304,15 +293,14 @@ async def testresult(
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
-                    await interaction.followup.send(f"❌ Web API hiba: {resp.status}\n{text}", ephemeral=True)
+                    await interaction.response.send_message(f"❌ Web API hiba: {resp.status}\n{text}", ephemeral=True)
                     return
     except Exception as e:
-        await interaction.followup.send(f"❌ Hálózati/API hiba: {e}", ephemeral=True)
+        await interaction.response.send_message(f"❌ Hálózati/API hiba: {e}", ephemeral=True)
         return
 
-    # EMBED — pont úgy mint a képen, és kódokat írunk ki (LT3 stb)
+    # PUBLIC EMBED (EZT AKAROD LÁTNI)
     skin_url = f"https://mc-heads.net/avatar/{mc_name}/64"
-
     embed = discord.Embed(
         title=f"{mc_name} teszt eredménye 🏆",
         color=0x2b2d31
@@ -324,17 +312,18 @@ async def testresult(
     embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
     embed.add_field(name="Elért rang:", value=new_rank, inline=False)
 
-    # küldés publikusba
+    # 1) első válasz: PUBLIC embed a csatornába
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+    # 2) plusz: neked egy zöld visszajelzés (ephemeral)
+    pts = RANK_POINTS.get(new_rank, 0)
     try:
-        await interaction.channel.send(embed=embed)
+        await interaction.followup.send(
+            f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{new_rank}** | **+{pts} pont**",
+            ephemeral=True
+        )
     except Exception:
         pass
-
-    pts = RANK_POINTS.get(new_rank, 0)
-    await interaction.followup.send(
-        f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{new_rank}** | **+{pts} pont**",
-        ephemeral=True
-    )
 
 # =========================
 # READY
