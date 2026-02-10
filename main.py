@@ -27,6 +27,9 @@ WIPE_GLOBAL_COMMANDS = os.getenv("WIPE_GLOBAL_COMMANDS", "0") == "1"
 COOLDOWN_SECONDS = 14 * 24 * 60 * 60
 DATA_FILE = "data.json"
 
+HTTP_TIMEOUT_SECONDS = 10  # hard timeout so it never "thinks forever"
+
+
 # =========================
 # CONSTANTS
 # =========================
@@ -68,6 +71,7 @@ POINTS = {
     "LT1": 14, "HT1": 16,
 }
 
+
 # =========================
 # STORAGE
 # =========================
@@ -80,13 +84,16 @@ def _load_data() -> Dict[str, Any]:
     except Exception:
         return {"ticket_state": {}, "cooldowns": {}}
 
+
 def _save_data(data: Dict[str, Any]) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
 def get_open_ticket_channel_id(user_id: int, mode_key: str) -> Optional[int]:
     data = _load_data()
     return data.get("ticket_state", {}).get(str(user_id), {}).get(mode_key)
+
 
 def set_open_ticket_channel_id(user_id: int, mode_key: str, channel_id: Optional[int]) -> None:
     data = _load_data()
@@ -98,9 +105,11 @@ def set_open_ticket_channel_id(user_id: int, mode_key: str, channel_id: Optional
         user_state[mode_key] = channel_id
     _save_data(data)
 
+
 def get_last_closed(user_id: int, mode_key: str) -> float:
     data = _load_data()
     return float(data.get("cooldowns", {}).get(str(user_id), {}).get(mode_key, 0))
+
 
 def set_last_closed(user_id: int, mode_key: str, ts: float) -> None:
     data = _load_data()
@@ -109,12 +118,14 @@ def set_last_closed(user_id: int, mode_key: str, ts: float) -> None:
     u[mode_key] = ts
     _save_data(data)
 
+
 def cooldown_left(user_id: int, mode_key: str) -> int:
     last = get_last_closed(user_id, mode_key)
     if last <= 0:
         return 0
     left = int((last + COOLDOWN_SECONDS) - time.time())
     return max(0, left)
+
 
 # =========================
 # PERMISSIONS
@@ -126,6 +137,7 @@ def is_staff_member(member: discord.Member) -> bool:
         return True
     return False
 
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -135,6 +147,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 http_session: Optional[aiohttp.ClientSession] = None
+
 
 # =========================
 # HEALTH SERVER (Railway)
@@ -155,6 +168,7 @@ async def start_health_server():
     await site.start()
     print(f"Health server running on :{port}")
 
+
 # =========================
 # WEBSITE API
 # =========================
@@ -163,17 +177,21 @@ def _auth_headers() -> Dict[str, str]:
         return {}
     return {"Authorization": f"Bearer {BOT_API_KEY}"}
 
+
 async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"tests": []}}
 
     url = f"{WEBSITE_URL}/api/tests?username={username}&mode={mode}"
-    async with http_session.get(url, headers=_auth_headers(), timeout=15) as resp:
+
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
         try:
             data = await resp.json()
         except Exception:
             data = {"error": await resp.text()}
         return {"status": resp.status, "data": data}
+
 
 async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
     if not WEBSITE_URL:
@@ -190,12 +208,14 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
         "ts": int(time.time()),
     }
 
-    async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=15) as resp:
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
         try:
             data = await resp.json()
         except Exception:
             data = {"error": await resp.text()}
         return {"status": resp.status, "data": data}
+
 
 # =========================
 # UI VIEWS
@@ -232,17 +252,19 @@ class CloseTicketView(discord.ui.View):
             await channel.delete(reason="NeoTiers ticket closed")
         except discord.Forbidden:
             try:
-                await channel.send("❌ Nem tudom törölni a csatornát (Missing Permissions). Add a botnak **Csatornák kezelése** jogot + kategórián is.")
+                await channel.send("❌ Nem tudom törölni a csatornát (Missing Permissions). Add a botnak **Csatornák kezelése** jogot + a kategórián is.")
             except Exception:
                 pass
         except Exception:
             pass
+
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         for label, mode_key, _rid in TICKET_TYPES:
             self.add_item(TicketButton(label=label, mode_key=mode_key))
+
 
 class TicketButton(discord.ui.Button):
     def __init__(self, label: str, mode_key: str):
@@ -308,7 +330,7 @@ class TicketButton(discord.ui.Button):
             )
         except discord.Forbidden:
             await interaction.response.send_message(
-                "❌ Nincs jogom csatornát létrehozni. Add a botnak **Csatornák kezelése** jogot (és kategórián is).",
+                "❌ Nincs jogom csatornát létrehozni. Add a botnak **Csatornák kezelése** jogot (és a kategórián is).",
                 ephemeral=True
             )
             return
@@ -334,34 +356,43 @@ class TicketButton(discord.ui.Button):
         await channel.send(content=ping_text, embed=embed, view=CloseTicketView(owner_id=member.id, mode_key=self.mode_key))
         await interaction.response.send_message(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
+
 # =========================
 # COMMANDS
 # =========================
-@app_commands.command(name="ticketpanel", description="Ticket panel üzenet kirakása.")
-async def ticketpanel(interaction: discord.Interaction):
-    # ✅ IMMEDIATE ACK (prevents 'app did not respond')
-    await interaction.response.defer(ephemeral=True)
-
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        await interaction.followup.send("Hiba.", ephemeral=True)
-        return
-    if not is_staff_member(interaction.user):
-        await interaction.followup.send("Nincs jogosultságod.", ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title="Teszt kérés",
-        description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
-        color=discord.Color.blurple()
-    )
-
-    # public panel message
-    await interaction.channel.send(embed=embed, view=TicketPanelView())
-
-    await interaction.followup.send("✅ Ticket panel kirakva.", ephemeral=True)
-
 def _choices_from_list(values):
     return [app_commands.Choice(name=v, value=v) for v in values]
+
+
+@app_commands.command(name="ticketpanel", description="Ticket panel üzenet kirakása.")
+async def ticketpanel(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod.", ephemeral=True)
+            return
+        if interaction.channel is None:
+            await interaction.followup.send("Hiba: nincs csatorna.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="Teszt kérés",
+            description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
+            color=discord.Color.blurple()
+        )
+
+        await interaction.channel.send(embed=embed, view=TicketPanelView())
+        await interaction.followup.send("✅ Ticket panel kirakva.", ephemeral=True)
+
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Nem tudok ide írni (Missing Permissions). Adj írás jogot a botnak ebben a csatornában.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
 
 @app_commands.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
 @app_commands.describe(
@@ -381,106 +412,123 @@ async def testresult(
     gamemode: app_commands.Choice[str],
     rank: app_commands.Choice[str],
 ):
-    # ✅ IMMEDIATE ACK (prevents 'app did not respond')
     await interaction.response.defer(ephemeral=True)
 
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        await interaction.followup.send("Hiba.", ephemeral=True)
-        return
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+        if interaction.channel is None:
+            await interaction.followup.send("Hiba: nincs csatorna.", ephemeral=True)
+            return
 
-    if not is_staff_member(interaction.user):
-        await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
-        return
+        mode_val = gamemode.value
+        rank_val = rank.value
 
-    mode_val = gamemode.value
-    rank_val = rank.value
+        # Previous rank from website (best-effort)
+        prev_rank = "Unranked"
+        if WEBSITE_URL:
+            try:
+                res = await api_get_tests(username=username, mode=mode_val)
+                if res.get("status") == 200:
+                    tests = res["data"].get("tests", [])
+                    if isinstance(tests, list) and tests:
+                        # pick first match if returned
+                        for t in tests:
+                            if str(t.get("mode", "")).lower() == mode_val.lower() and str(t.get("username", "")).lower() == username.lower():
+                                prev_rank = str(t.get("rank", "Unranked")) or "Unranked"
+                                break
+            except Exception:
+                pass
 
-    # Previous rank from website (best-effort)
-    prev_rank = "Unranked"
-    if WEBSITE_URL:
-        try:
-            res = await api_get_tests(username=username, mode=mode_val)
-            if res.get("status") == 200:
-                tests = res["data"].get("tests", [])
-                if isinstance(tests, list) and tests:
-                    for t in tests:
-                        if str(t.get("mode", "")).lower() == mode_val.lower() and str(t.get("username", "")).lower() == username.lower():
-                            prev_rank = str(t.get("rank", "Unranked")) or "Unranked"
-                            break
-        except Exception:
-            pass
+        prev_points = POINTS.get(prev_rank, 0)
+        new_points = POINTS.get(rank_val, 0)
+        diff = new_points - prev_points
 
-    prev_points = POINTS.get(prev_rank, 0)
-    new_points = POINTS.get(rank_val, 0)
-    diff = new_points - prev_points
-
-    # PUBLIC EMBED (everyone sees)
-    skin_url = f"https://minotar.net/helm/{username}/128.png"
-    embed = discord.Embed(
-        title=f"{username} teszt eredménye 🏆",
-        color=discord.Color.dark_grey()
-    )
-    embed.set_thumbnail(url=skin_url)
-    embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
-    embed.add_field(name="Játékmód:", value=mode_val, inline=False)
-    embed.add_field(name="Minecraft név:", value=username, inline=False)
-    embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
-    embed.add_field(name="Elért rang:", value=rank_val, inline=False)
-
-    await interaction.channel.send(embed=embed)
-
-    # SAVE TO WEBSITE (UPsert)
-    save_ok = False
-    save_status = None
-    save_data = None
-
-    if WEBSITE_URL:
-        try:
-            save = await api_post_test(username=username, mode=mode_val, rank=rank_val, tester=tester)
-            save_status = save.get("status")
-            save_data = save.get("data")
-            save_ok = (save_status == 200 or save_status == 201)
-        except Exception as e:
-            save_ok = False
-            save_status = -1
-            save_data = {"error": str(e)}
-    else:
-        save_ok = False
-        save_status = 0
-        save_data = {"error": "WEBSITE_URL not set"}
-
-    # EPHEMERAL CONFIRMATION (only you see)
-    if save_ok:
-        await interaction.followup.send(
-            f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
-            f"{'+' if diff>=0 else ''}{diff} pont",
-            ephemeral=True
+        # PUBLIC EMBED (everyone sees)
+        skin_url = f"https://minotar.net/helm/{username}/128.png"
+        embed = discord.Embed(
+            title=f"{username} teszt eredménye 🏆",
+            color=discord.Color.dark_grey()
         )
-    else:
-        await interaction.followup.send(
-            f"⚠️ Mentés hiba a weboldal felé (status {save_status}) | {save_data}",
-            ephemeral=True
-        )
+        embed.set_thumbnail(url=skin_url)
+        embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
+        embed.add_field(name="Játékmód:", value=mode_val, inline=False)
+        embed.add_field(name="Minecraft név:", value=username, inline=False)
+        embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
+        embed.add_field(name="Elért rang:", value=rank_val, inline=False)
+
+        await interaction.channel.send(embed=embed)
+
+        # SAVE TO WEBSITE (UPsert)
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva, nem mentem webre.", ephemeral=True)
+            return
+
+        save = await api_post_test(username=username, mode=mode_val, rank=rank_val, tester=tester)
+        save_status = save.get("status")
+        save_data = save.get("data")
+        save_ok = (save_status == 200 or save_status == 201)
+
+        if save_ok:
+            await interaction.followup.send(
+                f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
+                f"{'+' if diff>=0 else ''}{diff} pont",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                f"⚠️ Mentés hiba a weboldal felé (status {save_status}) | {save_data}",
+                ephemeral=True
+            )
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout (nem válaszolt 10 mp-en belül).", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Nem tudok ide írni / embedet küldeni (Missing Permissions).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+# =========================
+# GLOBAL APP COMMAND ERROR HANDLER
+# =========================
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    try:
+        # If already responded, use followup, else normal response
+        if interaction.response.is_done():
+            await interaction.followup.send(f"❌ Parancs hiba: {type(error).__name__}: {error}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ Parancs hiba: {type(error).__name__}: {error}", ephemeral=True)
+    except Exception:
+        pass
+
 
 # =========================
 # SETUP / EVENTS
 # =========================
 async def wipe_global_commands_once():
     try:
-        cmds = await bot.tree.fetch_commands()
-        if cmds:
-            bot.tree.clear_commands(guild=None)
-            await bot.tree.sync()
-            print("Global commands wiped.")
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print("Global commands wiped.")
     except Exception as e:
         print("Failed to wipe global commands:", e)
+
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
 
+    # persistent views
     bot.add_view(TicketPanelView())
-    bot.add_view(CloseTicketView(owner_id=0, mode_key=""))  # dummy to register custom_id
+    bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
 
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
@@ -497,6 +545,7 @@ async def on_ready():
     except Exception as e:
         print("Sync failed:", e)
 
+
 async def main():
     global http_session
 
@@ -504,8 +553,11 @@ async def main():
         raise RuntimeError("DISCORD_TOKEN is missing")
 
     http_session = aiohttp.ClientSession()
+
+    # health server
     asyncio.create_task(start_health_server())
 
+    # register commands (guild-scoped for instant updates)
     if GUILD_ID:
         g = discord.Object(id=GUILD_ID)
         bot.tree.add_command(ticketpanel, guild=g)
@@ -519,6 +571,7 @@ async def main():
     finally:
         if http_session:
             await http_session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
