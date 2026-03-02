@@ -217,6 +217,26 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
         return {"status": resp.status, "data": data}
 
 
+async def api_rename_player(old_name: str, new_name: str) -> Dict[str, Any]:
+    """Rename a player on the tierlist (admin only)"""
+    if not WEBSITE_URL:
+        return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
+
+    url = f"{WEBSITE_URL}/api/tests/rename"
+    payload = {
+        "oldName": old_name,
+        "newName": new_name,
+    }
+
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    async with http_session.put(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+        try:
+            data = await resp.json()
+        except Exception:
+            data = {"error": await resp.text()}
+        return {"status": resp.status, "data": data}
+
+
 # =========================
 # UI VIEWS
 # =========================
@@ -495,6 +515,62 @@ async def testresult(
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="tierlistnamechange", description="Játékos nevének megváltoztatása a tierlistán (admin csak)")
+@app_commands.describe(
+    oldname="A jelenlegi név a tierlistán",
+    newname="Az új név ami megjelenik a tierlistán"
+)
+async def tierlistnamechange(interaction: discord.Interaction, oldname: str, newname: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        # Call the website API to rename the player
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        result = await api_rename_player(old_name=oldname, new_name=newname)
+        status = result.get("status")
+        data = result.get("data", {})
+
+        if status == 200:
+            updated_count = data.get("updatedCount", 0)
+            await interaction.followup.send(
+                f"✅ Sikeresen átnevezve: **{oldname}** → **{newname}**\n"
+                f"Frissítve: {updated_count} db bejegyzés (összes gamemód)",
+                ephemeral=True
+            )
+        elif status == 404:
+            await interaction.followup.send(
+                f"❌ Játékos nem találva: **{oldname}**",
+                ephemeral=True
+            )
+        elif status == 401 or status == 403:
+            await interaction.followup.send(
+                "❌ Nincs jogosultságod ehhez a parancshoz.",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                f"⚠️ Hiba (status {status}): {data}",
+                ephemeral=True
+            )
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout (nem válaszolt 10 mp-en belül).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 # =========================
 # GLOBAL APP COMMAND ERROR HANDLER
 # =========================
@@ -562,9 +638,11 @@ async def main():
         g = discord.Object(id=GUILD_ID)
         bot.tree.add_command(ticketpanel, guild=g)
         bot.tree.add_command(testresult, guild=g)
+        bot.tree.add_command(tierlistnamechange, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
+        bot.tree.add_command(tierlistnamechange)
 
     try:
         await bot.start(DISCORD_TOKEN)
