@@ -222,6 +222,7 @@ async def api_rename_player(old_name: str, new_name: str) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
 
+    # Use /api/tests/rename endpoint with POST method
     url = f"{WEBSITE_URL}/api/tests/rename"
     payload = {
         "oldName": old_name,
@@ -229,7 +230,7 @@ async def api_rename_player(old_name: str, new_name: str) -> Dict[str, Any]:
     }
 
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
-    async with http_session.put(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+    async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
         try:
             data = await resp.json()
         except Exception:
