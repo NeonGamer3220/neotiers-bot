@@ -701,20 +701,15 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
 # GLOBAL APP COMMAND ERROR HANDLER
 # =========================
 
-@app_commands.command(name="retire", description="Játékos nyugdíjazása egy gamemódban (admin csak).")
+@app_commands.command(name="retire", description="Játékos nyugdíjazása egy gamemódban (admin csak, csak Tier 2).")
 @app_commands.describe(
     name="A játékos neve a tierlistán",
-    gamemode="A játékmód",
-    action="Nyugdíjazás vagy visszahozás (retire/unretire)"
+    gamemode="A játékmód"
 )
 @app_commands.choices(
-    gamemode=_choices_from_list(MODE_LIST),
-    action=[
-        app_commands.Choice(name="Nyugdíjazás (retire)", value="retire"),
-        app_commands.Choice(name="Visszahozás (unretire)", value="unretire")
-    ]
+    gamemode=_choices_from_list(MODE_LIST)
 )
-async def retire(interaction: discord.Interaction, name: str, gamemode: app_commands.Choice[str], action: app_commands.Choice[str]):
+async def retire(interaction: discord.Interaction, name: str, gamemode: app_commands.Choice[str]):
     await interaction.response.defer(ephemeral=True)
 
     try:
@@ -726,34 +721,145 @@ async def retire(interaction: discord.Interaction, name: str, gamemode: app_comm
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
 
-        # Call the website API
-        url = f"{WEBSITE_URL}/api/tests/retire"
-        payload = {
-            "username": name,
-            "gamemode": gamemode.value,
-            "retired": action.value == "retire"
-        }
-
+        # First, check the player's current rank to ensure they are Tier 2
+        url = f"{WEBSITE_URL}/api/tests?username={name}&gamemode={gamemode.value}"
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
-        async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
             try:
                 data = await resp.json()
             except Exception:
                 data = {}
 
-            if resp.status == 200:
-                await interaction.followup.send(
-                    f"✅ Sikeres művelet! **{name}** ({gamemode.value}) most **{'nyugdíjas' if action.value == 'retire' else 'aktív'}**.",
-                    ephemeral=True
-                )
-            elif resp.status == 404:
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            test = data.get("test")
+            if not test:
                 await interaction.followup.send(
                     f"❌ Játékos nem találva: **{name}** ezen a gamemódon ({gamemode.value}).",
                     ephemeral=True
                 )
+                return
+
+            current_rank = test.get("rank", "")
+            # Check if Tier 2
+            if current_rank not in ["LT2", "HT2"]:
+                await interaction.followup.send(
+                    f"❌ Csak Tier 2 (LT2/HT2) játékosok nyugdíjazhatók. **{name}** jelenleg: **{current_rank}**.",
+                    ephemeral=True
+                )
+                return
+
+        # Call the website API to retire (upsert with R prefix)
+        retire_url = f"{WEBSITE_URL}/api/tests"
+        payload = {
+            "username": name,
+            "gamemode": gamemode.value,
+            "rank": f"R{current_rank}",
+            "points": POINTS.get(current_rank, 0), # Keep same points
+            "retired": True
+        }
+
+        async with http_session.post(retire_url, json=payload, headers=_auth_headers(), timeout=timeout) as retire_resp:
+            try:
+                retire_data = await retire_resp.json()
+            except Exception:
+                retire_data = {}
+
+            if retire_resp.status == 200:
+                await interaction.followup.send(
+                    f"✅ Sikeres nyugdíjazás! **{name}** ({gamemode.value}) most **R{current_rank}**.",
+                    ephemeral=True
+                )
             else:
                 await interaction.followup.send(
-                    f"⚠️ Hiba: {resp.status} - {data}",
+                    f"⚠️ Hiba: {retire_resp.status} - {retire_data}",
+                    ephemeral=True
+                )
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="unretire", description="Játékos visszahozása nyugdíjból (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán",
+    gamemode="A játékmód"
+)
+@app_commands.choices(
+    gamemode=_choices_from_list(MODE_LIST)
+)
+async def unretire(interaction: discord.Interaction, name: str, gamemode: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # First, get current rank to remove R prefix
+        url = f"{WEBSITE_URL}/api/tests?username={name}&gamemode={gamemode.value}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            test = data.get("test")
+            if not test:
+                await interaction.followup.send(
+                    f"❌ Játékos nem találva: **{name}** ezen a gamemódon ({gamemode.value}).",
+                    ephemeral=True
+                )
+                return
+
+            current_rank = test.get("rank", "")
+            if not current_rank.startswith("R"):
+                await interaction.followup.send(
+                    f"❌ A játékos nincs nyugdíjazva ebben a gamemódban.",
+                    ephemeral=True
+                )
+                return
+
+            original_rank = current_rank[1:] # Remove R prefix
+
+        # Upsert back to original rank
+        post_url = f"{WEBSITE_URL}/api/tests"
+        payload = {
+            "username": name,
+            "gamemode": gamemode.value,
+            "rank": original_rank,
+            "points": POINTS.get(original_rank, 0)
+        }
+
+        async with http_session.post(post_url, json=payload, headers=_auth_headers(), timeout=timeout) as post_resp:
+            try:
+                post_data = await post_resp.json()
+            except Exception:
+                post_data = {}
+
+            if post_resp.status == 200:
+                await interaction.followup.send(
+                    f"✅ Sikeres visszahozatal! **{name}** ({gamemode.value}) visszatért a tierlistára ({original_rank}).",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ Hiba: {post_resp.status} - {post_data}",
                     ephemeral=True
                 )
 
@@ -833,6 +939,7 @@ async def main():
         bot.tree.add_command(profile, guild=g)
         bot.tree.add_command(porog, guild=g)
         bot.tree.add_command(retire, guild=g)
+        bot.tree.add_command(unretire, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
@@ -840,6 +947,7 @@ async def main():
         bot.tree.add_command(profile)
         bot.tree.add_command(porog)
         bot.tree.add_command(retire)
+        bot.tree.add_command(unretire)
 
     try:
         await bot.start(DISCORD_TOKEN)
