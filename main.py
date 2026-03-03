@@ -572,6 +572,73 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="profile", description="Megnézed egy játékos tierjeit a tierlistáról.")
+@app_commands.describe(
+    name="A játékos neve a tierlistán"
+)
+async def profile(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # Use the new API endpoint that supports filtering by username only
+        url = f"{WEBSITE_URL}/api/tests?username={name}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            tests = data.get("tests", [])
+
+            if not tests:
+                await interaction.followup.send(f"❌ Nincs találat erre a névre: **{name}**", ephemeral=False)
+                return
+
+            # Build embed
+            embed = discord.Embed(
+                title=f"{name} profilja",
+                color=discord.Color.blurple()
+            )
+
+            # Sort by points (desc)
+            tests.sort(key=lambda x: x.get("points", 0), reverse=True)
+
+            # List modes
+            mode_strs = []
+            total_points = 0
+            for t in tests:
+                m = t.get("gamemode", "?")
+                r = t.get("rank", "?")
+                p = t.get("points", 0)
+                total_points += p
+                mode_strs.append(f"**{m}**: {r} ({p}pt)")
+
+            embed.description = "\n".join(mode_strs)
+            embed.add_field(name="Összes pont", value=str(total_points), inline=False)
+
+            # Skin
+            skin_url = f"https://minotar.net/helm/{name}/128.png"
+            embed.set_thumbnail(url=skin_url)
+
+            await interaction.followup.send(embed=embed)
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout (nem válaszolt 10 mp-en belül).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 # =========================
 # GLOBAL APP COMMAND ERROR HANDLER
 # =========================
@@ -640,10 +707,12 @@ async def main():
         bot.tree.add_command(ticketpanel, guild=g)
         bot.tree.add_command(testresult, guild=g)
         bot.tree.add_command(tierlistnamechange, guild=g)
+        bot.tree.add_command(profile, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
         bot.tree.add_command(tierlistnamechange)
+        bot.tree.add_command(profile)
 
     try:
         await bot.start(DISCORD_TOKEN)
