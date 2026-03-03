@@ -639,6 +639,64 @@ async def profile(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="porog", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
+@app_commands.describe(
+    gamemode="A játékmód (pl. sword, pot, smp)",
+    tier="A tier (pl. ht3, lt1)"
+)
+@app_commands.choices(
+    gamemode=_choices_from_list(MODE_LIST),
+    tier=_choices_from_list(RANKS)
+)
+async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[str], tier: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # Fetch random player
+        url = f"{WEBSITE_URL}/api/tests?mode={gamemode.value}&tier={tier.value}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            player = data.get("player")
+
+            if not player:
+                await interaction.followup.send("❌ Nincs találat erre a gamemódra és tier-re.", ephemeral=False)
+                return
+
+            username = player.get("username")
+            rank = player.get("rank")
+
+            embed = discord.Embed(
+                title="🎲 Sorsolt játékos",
+                description=f"**{username}** ({rank})",
+                color=discord.Color.gold()
+            )
+
+            skin_url = f"https://minotar.net/helm/{username}/128.png"
+            embed.set_thumbnail(url=skin_url)
+
+            await interaction.followup.send(embed=embed)
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout (nem válaszolt 10 mp-en belül).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 # =========================
 # GLOBAL APP COMMAND ERROR HANDLER
 # =========================
@@ -708,11 +766,13 @@ async def main():
         bot.tree.add_command(testresult, guild=g)
         bot.tree.add_command(tierlistnamechange, guild=g)
         bot.tree.add_command(profile, guild=g)
+        bot.tree.add_command(porog, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
         bot.tree.add_command(tierlistnamechange)
         bot.tree.add_command(profile)
+        bot.tree.add_command(porog)
 
     try:
         await bot.start(DISCORD_TOKEN)
