@@ -495,6 +495,38 @@ async def testresult(
         save_ok = (save_status == 200 or save_status == 201)
 
         if save_ok:
+            # Set cooldown for the tested player (username)
+            # We need the user ID for this. The bot doesn't know the Discord ID of the Minecraft player.
+            # We can store cooldown by username instead of Discord ID.
+            # BUT: we need a function to set cooldown by username.
+            # Currently get_last_closed takes user_id (discord).
+            # We should change the cooldown system to use Minecraft names if we can't map them to Discord IDs easily.
+            # OR we can assume the ticket creator is the one being tested? No, tickets are created by players requesting tests.
+            # The flow is: Player opens ticket -> Staff tests them -> Staff runs /testresult.
+            # The command is run by staff. We don't know who the player is in Discord terms (unless they are in the guild).
+            # Wait, we can try to find the member who created the ticket?
+            # The ticket channel has a topic: topic=f"NeoTiers ticket | owner={member.id} | mode={self.mode_key}"
+            # We can get the channel topic to find the owner ID!
+
+            channel = interaction.channel
+            owner_id = None
+            if channel and channel.topic:
+                try:
+                    # Parse "owner=123456789"
+                    for part in channel.topic.split(" | "):
+                        if part.startswith("owner="):
+                            owner_id = int(part.split("=")[1])
+                            break
+                except Exception:
+                    pass
+
+            if owner_id:
+                set_last_closed(owner_id, mode_val, time.time())
+            else:
+                # Fallback: if we can't find owner, maybe it's a DM or something went wrong.
+                # We can't set cooldown then.
+                pass
+
             await interaction.followup.send(
                 f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
                 f"{'+' if diff>=0 else ''}{diff} pont",
