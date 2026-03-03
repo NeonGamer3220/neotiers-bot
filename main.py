@@ -182,7 +182,7 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"tests": []}}
 
-    url = f"{WEBSITE_URL}/api/tests?username={username}&mode={mode}"
+    url = f"{WEBSITE_URL}/api/tests?username={username}&gamemode={mode}"
 
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
     async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
@@ -455,13 +455,15 @@ async def testresult(
             try:
                 res = await api_get_tests(username=username, mode=mode_val)
                 if res.get("status") == 200:
-                    tests = res["data"].get("tests", [])
-                    if isinstance(tests, list) and tests:
-                        # pick first match if returned
-                        for t in tests:
-                            if str(t.get("mode", "")).lower() == mode_val.lower() and str(t.get("username", "")).lower() == username.lower():
-                                prev_rank = str(t.get("rank", "Unranked")) or "Unranked"
-                                break
+                    data = res.get("data", {})
+                    # Handle single result (test) or list (tests)
+                    test = data.get("test")
+                    tests = data.get("tests", [])
+
+                    target = test if test else (tests[0] if tests else None)
+
+                    if target:
+                        prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
             except Exception:
                 pass
 
