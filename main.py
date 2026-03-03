@@ -690,8 +690,21 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
 
-        # Fetch random player
+        # Try to exclude the ticket owner
+        exclude_user = None
+        channel = interaction.channel
+        if channel and channel.name:
+            # Channel name is like "sword-username" where username is discord name
+            # We can try to use this to exclude
+            parts = channel.name.split("-")
+            if len(parts) > 1:
+                exclude_user = parts[1] # The part after the mode
+
+        # Build URL with exclusion if we found someone
         url = f"{WEBSITE_URL}/api/tests?mode={gamemode.value}&tier={tier.value}"
+        if exclude_user:
+            url += f"&exclude={exclude_user}"
+
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
         async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
             try:
