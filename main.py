@@ -128,6 +128,82 @@ def cooldown_left(user_id: int, mode_key: str) -> int:
 
 
 # =========================
+# BAN SYSTEM
+# =========================
+def _load_ban_data() -> Dict[str, Any]:
+    if not os.path.exists("bans.json"):
+        return {}
+    try:
+        with open("bans.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ban_data(data: Dict[str, Any]) -> None:
+    with open("bans.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def is_player_banned(username: str) -> bool:
+    """Check if a player is banned and if the ban has expired."""
+    data = _load_ban_data()
+    ban_info = data.get(username.lower())
+    if not ban_info:
+        return False
+    
+    # Check if ban has expired
+    expires_at = ban_info.get("expires_at", 0)
+    if expires_at > 0 and time.time() > expires_at:
+        # Ban expired, remove it
+        data.pop(username.lower(), None)
+        _save_ban_data(data)
+        return False
+    
+    return True
+
+
+def get_ban_info(username: str) -> Optional[Dict[str, Any]]:
+    """Get ban info for a player. Returns None if not banned or ban expired."""
+    data = _load_ban_data()
+    ban_info = data.get(username.lower())
+    if not ban_info:
+        return None
+    
+    expires_at = ban_info.get("expires_at", 0)
+    if expires_at > 0 and time.time() > expires_at:
+        data.pop(username.lower(), None)
+        _save_ban_data(data)
+        return None
+    
+    return ban_info
+
+
+def ban_player(username: str, days: int, reason: str = "") -> None:
+    """Ban a player for a specified number of days. Use days=0 for permanent ban."""
+    data = _load_ban_data()
+    expires_at = 0 if days == 0 else time.time() + (days * 24 * 60 * 60)
+    data[username.lower()] = {
+        "username": username,
+        "reason": reason,
+        "banned_at": time.time(),
+        "expires_at": expires_at,
+        "permanent": days == 0
+    }
+    _save_ban_data(data)
+
+
+def unban_player(username: str) -> bool:
+    """Unban a player. Returns True if they were banned and are now unbanned."""
+    data = _load_ban_data()
+    if username.lower() in data:
+        data.pop(username.lower(), None)
+        _save_ban_data(data)
+        return True
+    return False
+
+
+# =========================
 # PERMISSIONS
 # =========================
 def is_staff_member(member: discord.Member) -> bool:
@@ -238,6 +314,31 @@ async def api_rename_player(old_name: str, new_name: str) -> Dict[str, Any]:
         return {"status": resp.status, "data": data}
 
 
+async def api_set_ban(username: str, banned: bool, expires_at: Optional[int] = None, reason: str = "") -> Dict[str, Any]:
+    """Set ban status on the website"""
+    if not WEBSITE_URL:
+        return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
+
+    url = f"{WEBSITE_URL}/api/tests/ban"
+    payload = {
+        "username": username,
+        "banned": banned,
+    }
+    
+    if expires_at is not None:
+        payload["expiresAt"] = expires_at
+    if reason:
+        payload["reason"] = reason
+
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+        try:
+            data = await resp.json()
+        except Exception:
+            data = {"error": await resp.text()}
+        return {"status": resp.status, "data": data}
+
+
 # =========================
 # UI VIEWS
 # =========================
@@ -299,6 +400,36 @@ class TicketButton(discord.ui.Button):
         if guild is None or not isinstance(member, discord.Member):
             await interaction.response.send_message("Hiba: guild/member nem elérhető.", ephemeral=True)
             return
+
+        # Check if player is banned from testing
+        # We need to check using the Discord username as the tierlist name
+        # The tierlist name is the Minecraft name, not Discord name
+        # We'll check both: first try Minecraft name from nickname/display name, then Discord name
+        
+        # For now, check the website for ban status using the Discord name as fallback
+        # The user should ideally set their Minecraft name in their Discord nickname
+        player_name = member.display_name
+        if member.nick:
+            player_name = member.nick
+            
+        # Try to get ban status from website
+        if WEBSITE_URL:
+            try:
+                url = f"{WEBSITE_URL}/api/tests/ban?username={player_name}"
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+                    if resp.status == 200:
+                        ban_data = await resp.json()
+                        if ban_data.get("banned"):
+                            reason = ban_data.get("reason", "")
+                            await interaction.response.send_message(
+                                f"❌ Ki vagy tiltva a tesztelésből!\n" +
+                                (f"**Ok:** {reason}" if reason else ""),
+                                ephemeral=True
+                            )
+                            return
+            except Exception:
+                pass  # If ban check fails, continue (fail open)
 
         left = cooldown_left(member.id, self.mode_key)
         if left > 0:
@@ -950,6 +1081,104 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="tierlistban", description="Játékos kitiltása a tesztelésből (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán",
+    days="Kitiltás időtartama napokban (0 = örök ban)",
+    reason="Kitiltás oka (opcionális)"
+)
+async def tierlistban(interaction: discord.Interaction, name: str, days: int, reason: str = ""):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        # Check if already banned
+        if is_player_banned(name):
+            ban_info = get_ban_info(name)
+            if ban_info:
+                expires_at = ban_info.get("expires_at", 0)
+                if expires_at == 0:
+                    await interaction.followup.send(
+                        f"❌ **{name}** már örökkitiltás alatt áll.",
+                        ephemeral=True
+                    )
+                else:
+                    from datetime import datetime
+                    exp_date = datetime.fromtimestamp(expires_at)
+                    await interaction.followup.send(
+                        f"❌ **{name}** már kitiltva. Lejárat: {exp_date.strftime('%Y-%m-%d %H:%M')}",
+                        ephemeral=True
+                    )
+            return
+
+        # Ban the player in bot
+        ban_player(name, days, reason)
+
+        # Sync ban to website
+        expires_at = 0 if days == 0 else int(time.time() + (days * 24 * 60 * 60))
+        if WEBSITE_URL:
+            await api_set_ban(username=name, banned=True, expires_at=expires_at, reason=reason)
+
+        # Build response message
+        if days == 0:
+            msg = f"✅ **{name}** örökre ki lett tiltva a tesztelésből."
+        else:
+            msg = f"✅ **{name}** ki lett tiltva {days} napra a tesztelésből."
+        
+        if reason:
+            msg += f"\n**Ok:** {reason}"
+
+        await interaction.followup.send(msg, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="tierlistunban", description="Játékos visszavétele a tesztelésbe (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán"
+)
+async def tierlistunban(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        # Check if actually banned
+        if not is_player_banned(name):
+            await interaction.followup.send(
+                f"❌ **{name}** nincs kitiltva.",
+                ephemeral=True
+            )
+            return
+
+        # Unban from bot
+        unban_player(name)
+
+        # Sync unban to website
+        if WEBSITE_URL:
+            await api_set_ban(username=name, banned=False)
+
+        await interaction.followup.send(
+            f"✅ **{name}** vissza lett engedve a tesztelésbe.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     try:
@@ -1019,6 +1248,8 @@ async def main():
         bot.tree.add_command(porog, guild=g)
         bot.tree.add_command(retire, guild=g)
         bot.tree.add_command(unretire, guild=g)
+        bot.tree.add_command(tierlistban, guild=g)
+        bot.tree.add_command(tierlistunban, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
@@ -1027,6 +1258,8 @@ async def main():
         bot.tree.add_command(porog)
         bot.tree.add_command(retire)
         bot.tree.add_command(unretire)
+        bot.tree.add_command(tierlistban)
+        bot.tree.add_command(tierlistunban)
 
     try:
         await bot.start(DISCORD_TOKEN)
