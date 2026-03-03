@@ -415,6 +415,33 @@ async def ticketpanel(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+async def autocomplete_testresult_username(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    if not WEBSITE_URL:
+        return []
+
+    try:
+        url = f"{WEBSITE_URL}/api/tests"
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            tests = data.get("tests", [])
+
+            # Extract unique usernames
+            usernames = set()
+            for t in tests:
+                u = t.get("username")
+                if u:
+                    usernames.add(u)
+
+            # Filter by current input
+            matches = [u for u in usernames if current.lower() in u.lower()]
+            return [app_commands.Choice(name=u, value=u) for u in matches[:25]]
+    except Exception:
+        return []
+
+
 @app_commands.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
 @app_commands.describe(
     username="Minecraft név (ebből lesz a skin a weboldalon)",
@@ -422,6 +449,7 @@ async def ticketpanel(interaction: discord.Interaction):
     gamemode="Játékmód",
     rank="Elért rank (pl. LT3 / HT3)"
 )
+@app_commands.autocomplete(username=autocomplete_testresult_username)
 @app_commands.choices(
     gamemode=_choices_from_list(MODE_LIST),
     rank=_choices_from_list(RANKS)
