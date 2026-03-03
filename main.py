@@ -686,6 +686,10 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
     await interaction.response.defer(ephemeral=False)
 
     try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
         if not WEBSITE_URL:
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
