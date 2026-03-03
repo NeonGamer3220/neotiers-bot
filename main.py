@@ -394,7 +394,7 @@ async def ticketpanel(interaction: discord.Interaction):
             await interaction.followup.send("Hiba.", ephemeral=True)
             return
         if not is_staff_member(interaction.user):
-            await interaction.followup.send("Nincs jogosultságod.", ephemeral=True)
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
         if interaction.channel is None:
             await interaction.followup.send("Hiba: nincs csatorna.", ephemeral=True)
@@ -700,6 +700,71 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
 # =========================
 # GLOBAL APP COMMAND ERROR HANDLER
 # =========================
+
+@app_commands.command(name="retire", description="Játékos nyugdíjazása egy gamemódban (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán",
+    gamemode="A játékmód",
+    action="Nyugdíjazás vagy visszahozás (retire/unretire)"
+)
+@app_commands.choices(
+    gamemode=_choices_from_list(MODE_LIST),
+    action=[
+        app_commands.Choice(name="Nyugdíjazás (retire)", value="retire"),
+        app_commands.Choice(name="Visszahozás (unretire)", value="unretire")
+    ]
+)
+async def retire(interaction: discord.Interaction, name: str, gamemode: app_commands.Choice[str], action: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # Call the website API
+        url = f"{WEBSITE_URL}/api/tests/retire"
+        payload = {
+            "username": name,
+            "gamemode": gamemode.value,
+            "retired": action.value == "retire"
+        }
+
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status == 200:
+                await interaction.followup.send(
+                    f"✅ Sikeres művelet! **{name}** ({gamemode.value}) most **{'nyugdíjas' if action.value == 'retire' else 'aktív'}**.",
+                    ephemeral=True
+                )
+            elif resp.status == 404:
+                await interaction.followup.send(
+                    f"❌ Játékos nem találva: **{name}** ezen a gamemódon ({gamemode.value}).",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ Hiba: {resp.status} - {data}",
+                    ephemeral=True
+                )
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     try:
@@ -767,12 +832,14 @@ async def main():
         bot.tree.add_command(tierlistnamechange, guild=g)
         bot.tree.add_command(profile, guild=g)
         bot.tree.add_command(porog, guild=g)
+        bot.tree.add_command(retire, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
         bot.tree.add_command(tierlistnamechange)
         bot.tree.add_command(profile)
         bot.tree.add_command(porog)
+        bot.tree.add_command(retire)
 
     try:
         await bot.start(DISCORD_TOKEN)
