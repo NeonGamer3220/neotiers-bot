@@ -1203,9 +1203,10 @@ async def tierlistunban(interaction: discord.Interaction, name: str):
 
 # Confirmation view for remove tierlist
 class ConfirmRemoveView(discord.ui.View):
-    def __init__(self, username: str, moderator: discord.Member):
+    def __init__(self, username: str, actual_username: str, moderator: discord.Member):
         super().__init__(timeout=60)
-        self.username = username
+        self.username = username  # What the user typed
+        self.actual_username = actual_username  # What's in the database
         self.moderator = moderator
         self.confirmed = False
 
@@ -1220,8 +1221,8 @@ class ConfirmRemoveView(discord.ui.View):
         await interaction.response.defer()
         
         try:
-            # Call the API to remove the player
-            result = await api_remove_player(username=self.username)
+            # Call the API to remove the player - use actual username from DB
+            result = await api_remove_player(username=self.actual_username)
             status = result.get("status")
             data = result.get("data", {})
 
@@ -1304,6 +1305,12 @@ async def removetierlist(interaction: discord.Interaction, name: str):
                 )
                 return
 
+            # Check for case mismatch warning
+            actual_username = tests[0].get("username", "")
+            case_warning = ""
+            if actual_username.lower() == name.lower() and actual_username != name:
+                case_warning = f"\n⚠️ **Figyelem:** A tierlistán **`{actual_username}`** van (nagy G), nem `{name}`!\n"
+
             # Show info about the player
             modes_info = "\n".join([f"• **{t.get('gamemode', '?')}**: {t.get('rank', '?')} ({t.get('points', 0)}pt)" for t in tests])
 
@@ -1311,14 +1318,15 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         embed = discord.Embed(
             title="⚠️ FIGYELMEZTETÉS - Törlés előtt!",
             description=f"Biztosan eltávolítod **{name}**-t a tierlistáról?\n\n"
-                       f"**Jelenlegi tierlist bejegyzések:**\n{modes_info}\n\n"
+                       f"**Jelenlegi tierlist bejegyzések:**\n{modes_info}" + 
+                       (case_warning if case_warning else "") + "\n\n"
                        f"❗ **EZ EGY VÉGÉGES MŰVELET!** A játékos minden gamemód-beli eredménye törlésre kerül.",
             color=discord.Color.red()
         )
         embed.set_footer(text=f"Kéri: {interaction.user.display_name}")
 
         # Send confirmation view
-        view = ConfirmRemoveView(username=name, moderator=interaction.user)
+        view = ConfirmRemoveView(username=name, actual_username=actual_username, moderator=interaction.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     except aiohttp.ClientError as e:
