@@ -1310,7 +1310,7 @@ async def removetierlist(interaction: discord.Interaction, name: str):
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
 
-        # First, check if the player exists in the tierlist
+        # First, check if the player exists in the tierlist (case-sensitive)
         url = f"{WEBSITE_URL}/api/tests?username={name}"
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
         async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
@@ -1324,18 +1324,31 @@ async def removetierlist(interaction: discord.Interaction, name: str):
                 return
 
             tests = data.get("tests", [])
-            if not tests:
-                await interaction.followup.send(
-                    f"❌ **{name}** nincs a tierlistán.",
-                    ephemeral=True
-                )
+            
+            # Filter for exact case-sensitive match
+            exact_match_tests = [t for t in tests if t.get("username", "") == name]
+            
+            # If no exact match, check if there's a similar name with different case
+            if not exact_match_tests:
+                similar = [t for t in tests if t.get("username", "").lower() == name.lower()]
+                if similar:
+                    similar_names = ", ".join([f"`{t.get('username')}`" for t in similar])
+                    await interaction.followup.send(
+                        f"❌ **{name}** nincs a tierlistán.\n\n"
+                        f"Hasonló név(ek) talált: {similar_names}\n"
+                        f"Kérlek írd be a pontos nevet (a nagybetűk számítanak)!",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"❌ **{name}** nincs a tierlistán.",
+                        ephemeral=True
+                    )
                 return
-
-            # Check for case mismatch warning
+            
+            # Use exact match
+            tests = exact_match_tests
             actual_username = tests[0].get("username", "")
-            case_warning = ""
-            if actual_username.lower() == name.lower() and actual_username != name:
-                case_warning = f"\n⚠️ **Figyelem:** A tierlistán **`{actual_username}`** van (nagy G), nem `{name}`!\n"
 
             # Show info about the player
             modes_info = "\n".join([f"• **{t.get('gamemode', '?')}**: {t.get('rank', '?')} ({t.get('points', 0)}pt)" for t in tests])
@@ -1344,15 +1357,14 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         embed = discord.Embed(
             title="⚠️ FIGYELMEZTETÉS - Törlés előtt!",
             description=f"Biztosan eltávolítod **{name}**-t a tierlistáról?\n\n"
-                       f"**Jelenlegi tierlist bejegyzések:**\n{modes_info}" + 
-                       (case_warning if case_warning else "") + "\n\n"
+                       f"**Jelenlegi tierlist bejegyzések:**\n{modes_info}\n\n"
                        f"❗ **EZ EGY VÉGÉGES MŰVELET!** A játékos minden gamemód-beli eredménye törlésre kerül.",
             color=discord.Color.red()
         )
         embed.set_footer(text=f"Kéri: {interaction.user.display_name}")
 
         # Send confirmation view
-        view = ConfirmRemoveView(username=name, actual_username=actual_username, moderator=interaction.user)
+        view = ConfirmRemoveView(username=name, actual_username=name, moderator=interaction.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     except aiohttp.ClientError as e:
