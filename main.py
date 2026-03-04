@@ -339,6 +339,28 @@ async def api_set_ban(username: str, banned: bool, expires_at: Optional[int] = N
         return {"status": resp.status, "data": data}
 
 
+async def api_remove_player(username: str, gamemode: Optional[str] = None) -> Dict[str, Any]:
+    """Remove a player from the tierlist (admin only)"""
+    if not WEBSITE_URL:
+        return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
+
+    url = f"{WEBSITE_URL}/api/tests/remove"
+    payload = {
+        "username": username,
+    }
+    
+    if gamemode:
+        payload["gamemode"] = gamemode
+
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+        try:
+            data = await resp.json()
+        except Exception:
+            data = {"error": await resp.text()}
+        return {"status": resp.status, "data": data}
+
+
 # =========================
 # UI VIEWS
 # =========================
@@ -1179,6 +1201,134 @@ async def tierlistunban(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+# Confirmation view for remove tierlist
+class ConfirmRemoveView(discord.ui.View):
+    def __init__(self, username: str, moderator: discord.Member):
+        super().__init__(timeout=60)
+        self.username = username
+        self.moderator = moderator
+        self.confirmed = False
+
+    @discord.ui.button(label="Igen, törlöm", style=discord.ButtonStyle.danger, custom_id="confirm_remove_yes")
+    async def confirm_yes(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        # Only the moderator who started the command can confirm
+        if interaction.user.id != self.moderator.id:
+            await interaction.response.send_message("❌ Csak a parancs indítója erősítheti meg.", ephemeral=True)
+            return
+
+        self.confirmed = True
+        await interaction.response.defer()
+        
+        try:
+            # Call the API to remove the player
+            result = await api_remove_player(username=self.username)
+            status = result.get("status")
+            data = result.get("data", {})
+
+            if status == 200:
+                removed_count = data.get("removedCount", 1)
+                modes = data.get("modes", "")
+                details = data.get("details", "")
+                
+                embed = discord.Embed(
+                    title="✅ Játékos eltávolítva a tierlistáról",
+                    description=f"**{self.username}** sikeresen törölve lett a tierlistáról.\n"
+                               f"Mód: {modes}" + (f"\n{details}" if details else ""),
+                    color=discord.Color.green()
+                )
+                embed.set_footer(text=f"Moderátor: {self.moderator.display_name}")
+                
+                await interaction.followup.send(embed=embed)
+            else:
+                error_msg = data.get("error", "Ismeretlen hiba")
+                await interaction.followup.send(
+                    f"❌ Hiba a törléskor: {error_msg}",
+                    ephemeral=True
+                )
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Hiba: {type(e).__name__}: {e}",
+                ephemeral=True
+            )
+
+        self.stop()
+
+    @discord.ui.button(label="Mégse", style=discord.ButtonStyle.secondary, custom_id="confirm_remove_no")
+    async def confirm_no(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        # Only the moderator who started the command can cancel
+        if interaction.user.id != self.moderator.id:
+            await interaction.response.send_message("❌ Csak a parancs indítója mondhat le.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("❌ Törlés megszüntetve.", ephemeral=True)
+        self.stop()
+
+
+@app_commands.command(name="removetierlist", description="Játékos eltávolítása a tierlistáról (admin csak, DANGER!)")
+@app_commands.describe(
+    name="A játékos neve a tierlistán (Minecraft név)"
+)
+async def removetierlist(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # First, check if the player exists in the tierlist
+        url = f"{WEBSITE_URL}/api/tests?username={name}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            tests = data.get("tests", [])
+            if not tests:
+                await interaction.followup.send(
+                    f"❌ **{name}** nincs a tierlistán.",
+                    ephemeral=True
+                )
+                return
+
+            # Show info about the player
+            modes_info = "\n".join([f"• **{t.get('gamemode', '?')}**: {t.get('rank', '?')} ({t.get('points', 0)}pt)" for t in tests])
+
+        # Create confirmation embed
+        embed = discord.Embed(
+            title="⚠️ FIGYELMEZTETÉS - Törlés előtt!",
+            description=f"Biztosan eltávolítod **{name}**-t a tierlistáról?\n\n"
+                       f"**Jelenlegi tierlist bejegyzések:**\n{modes_info}\n\n"
+                       f"❗ **EZ EGY VÉGÉGES MŰVELET!** A játékos minden gamemód-beli eredménye törlésre kerül.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text=f"Kéri: {interaction.user.display_name}")
+
+        # Send confirmation view
+        view = ConfirmRemoveView(username=name, moderator=interaction.user)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout (nem válaszolt 10 mp-en belül).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     try:
@@ -1250,6 +1400,7 @@ async def main():
         bot.tree.add_command(unretire, guild=g)
         bot.tree.add_command(tierlistban, guild=g)
         bot.tree.add_command(tierlistunban, guild=g)
+        bot.tree.add_command(removetierlist, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
@@ -1260,6 +1411,7 @@ async def main():
         bot.tree.add_command(unretire)
         bot.tree.add_command(tierlistban)
         bot.tree.add_command(tierlistunban)
+        bot.tree.add_command(removetierlist)
 
     try:
         await bot.start(DISCORD_TOKEN)
