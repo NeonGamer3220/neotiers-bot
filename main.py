@@ -818,9 +818,29 @@ async def profile(interaction: discord.Interaction, name: str):
                 await interaction.followup.send(f"❌ Nincs találat erre a névre: **{name}**", ephemeral=False)
                 return
 
+            # Get global rank by fetching all tests and sorting
+            all_url = f"{WEBSITE_URL}/api/tests"
+            async with http_session.get(all_url, headers=_auth_headers(), timeout=timeout) as all_resp:
+                try:
+                    all_data = await all_resp.json()
+                except Exception:
+                    all_data = {}
+
+            all_tests = all_data.get("tests", [])
+            global_rank = None
+            if all_tests:
+                # Sort by points descending
+                all_tests.sort(key=lambda x: x.get("points", 0), reverse=True)
+                # Find the player's position
+                player_username = tests[0].get("username", "").lower()
+                for idx, t in enumerate(all_tests, 1):
+                    if t.get("username", "").lower() == player_username:
+                        global_rank = idx
+                        break
+
             # Build embed
             embed = discord.Embed(
-                title=f"{name} profilja",
+                title=f"{tests[0].get('username', name)} profilja",
                 color=discord.Color.blurple()
             )
 
@@ -838,10 +858,16 @@ async def profile(interaction: discord.Interaction, name: str):
                 mode_strs.append(f"**{m}**: {r} ({p}pt)")
 
             embed.description = "\n".join(mode_strs)
-            embed.add_field(name="Összes pont", value=str(total_points), inline=False)
+            
+            # Add rank info
+            rank_info = f"**Összes pont:** {total_points}"
+            if global_rank:
+                rank_info += f"\n**Globális rank:** #{global_rank}"
+            
+            embed.add_field(name="Statisztika", value=rank_info, inline=False)
 
             # Skin
-            skin_url = f"https://minotar.net/helm/{name}/128.png"
+            skin_url = f"https://minotar.net/helm/{tests[0].get('username', name)}/128.png"
             embed.set_thumbnail(url=skin_url)
 
             await interaction.followup.send(embed=embed)
