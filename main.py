@@ -382,14 +382,39 @@ class CloseTicketView(discord.ui.View):
             await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
             return
 
-        if member.id != self.owner_id and not is_staff_member(member):
+        # Get owner_id from channel topic (stored when ticket was created)
+        topic = channel.topic or ""
+        owner_id = 0
+        if "owner=" in topic:
+            try:
+                owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
+            except (ValueError, IndexError):
+                owner_id = 0
+
+        # Allow both ticket owner AND staff to close
+        if member.id != owner_id and not is_staff_member(member):
             await interaction.response.send_message("Nincs jogosultságod a ticket zárásához.", ephemeral=True)
             return
 
         await interaction.response.send_message("✅ Ticket zárása... 3 mp múlva törlöm a csatornát.", ephemeral=True)
 
-        set_last_closed(self.owner_id, self.mode_key, time.time())
-        set_open_ticket_channel_id(self.owner_id, self.mode_key, None)
+        # Get owner_id and mode_key from channel topic
+        topic = channel.topic or ""
+        owner_id = 0
+        mode_key = ""
+        if "owner=" in topic:
+            try:
+                owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
+            except (ValueError, IndexError):
+                owner_id = 0
+        if "mode=" in topic:
+            try:
+                mode_key = topic.split("mode=")[1].strip()
+            except IndexError:
+                mode_key = ""
+
+        set_last_closed(owner_id, mode_key, time.time())
+        set_open_ticket_channel_id(owner_id, mode_key, None)
 
         await asyncio.sleep(3)
         try:
