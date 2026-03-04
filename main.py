@@ -854,12 +854,25 @@ async def profile(interaction: discord.Interaction, name: str):
             all_tests = all_data.get("tests", [])
             global_rank = None
             if all_tests:
-                # Sort by points descending
-                all_tests.sort(key=lambda x: x.get("points", 0), reverse=True)
+                # Group by username and sum points
+                player_totals = {}
+                for t in all_tests:
+                    username = t.get("username", "")
+                    points = t.get("points", 0)
+                    if username in player_totals:
+                        player_totals[username] += points
+                    else:
+                        player_totals[username] = points
+                
+                # Sort by total points descending
+                sorted_players = sorted(player_totals.items(), key=lambda x: x[1], reverse=True)
+                
                 # Find the player's position
-                player_username = tests[0].get("username", "").lower()
-                for idx, t in enumerate(all_tests, 1):
-                    if t.get("username", "").lower() == player_username:
+                player_username = tests[0].get("username", "")
+                player_total_points = player_totals.get(player_username, 0)
+                
+                for idx, (name, pts) in enumerate(sorted_players, 1):
+                    if name == player_username:
                         global_rank = idx
                         break
 
