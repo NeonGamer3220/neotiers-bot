@@ -1413,6 +1413,128 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="cooldown", description="Megnézed a cooldownidat egy játékmódban, vagy egy másik játékos cooldownját (staff).")
+@app_commands.describe(
+    user="Játékos (ha üres, a sajátodat nézed meg)"
+)
+async def cooldown(interaction: discord.Interaction, user: discord.User = None):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        member = interaction.user
+        is_staff = False
+        
+        # Check if user is staff (for viewing others' cooldowns)
+        if user is not None:
+            if not interaction.guild or not isinstance(interaction.user, discord.Member):
+                await interaction.followup.send("Hiba: Guild context szükséges más játékos cooldownjának megtekintéséhez.", ephemeral=True)
+                return
+            is_staff = is_staff_member(interaction.user)
+            
+            if not is_staff:
+                await interaction.followup.send("Nincs jogosultságod más játékos cooldownjának megtekintéséhez.", ephemeral=True)
+                return
+            
+            target_member = user
+        else:
+            # Check own cooldown - check if banned first
+            target_member = member
+        
+        # Check if player is banned from testing
+        if WEBSITE_URL:
+            try:
+                player_name = target_member.display_name
+                if hasattr(target_member, 'nick') and target_member.nick:
+                    player_name = target_member.nick
+                    
+                url = f"{WEBSITE_URL}/api/tests/ban?username={player_name}"
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+                    if resp.status == 200:
+                        ban_data = await resp.json()
+                        if ban_data.get("banned"):
+                            reason = ban_data.get("reason", "")
+                            await interaction.followup.send(
+                                f"❌ **{player_name}** ki van tiltva a tesztelésből!\n" +
+                                (f"**Ok:** {reason}" if reason else "Nincs megadva ok."),
+                                ephemeral=True
+                            )
+                            return
+            except Exception:
+                pass  # If ban check fails, continue
+        
+        # Check local ban (bot-side)
+        if is_player_banned(target_member.display_name):
+            ban_info = get_ban_info(target_member.display_name)
+            if ban_info:
+                expires_at = ban_info.get("expires_at", 0)
+                if expires_at == 0:
+                    await interaction.followup.send(
+                        f"❌ **{target_member.display_name}** örökre ki van tiltva a tesztelésből!\n"
+                        f"**Ok:** {ban_info.get('reason', 'Nincs megadva')}",
+                        ephemeral=True
+                    )
+                else:
+                    from datetime import datetime
+                    exp_date = datetime.fromtimestamp(expires_at)
+                    await interaction.followup.send(
+                        f"❌ **{target_member.display_name}** ki van tiltva!\n"
+                        f"**Lejárat:** {exp_date.strftime('%Y-%m-%d %H:%M')}\n"
+                        f"**Ok:** {ban_info.get('reason', 'Nincs megadva')}",
+                        ephemeral=True
+                    )
+                return
+        
+        # Build cooldown info for all modes
+        data = _load_data()
+        cooldowns = data.get("cooldowns", {}).get(str(target_member.id), {})
+        
+        embed = discord.Embed(
+            title=f"⏳ Cooldown info - {target_member.display_name}",
+            color=discord.Color.blurple()
+        )
+        
+        mode_cooldowns = []
+        for label, mode_key, _ in TICKET_TYPES:
+            last_closed = float(cooldowns.get(mode_key, 0))
+            if last_closed <= 0:
+                mode_cooldowns.append(f"✅ **{label}**: Nincs cooldown")
+            else:
+                left = int((last_closed + COOLDOWN_SECONDS) - time.time())
+                if left <= 0:
+                    mode_cooldowns.append(f"✅ **{label}**: Kész vagy, már nyithatsz ticketet!")
+                else:
+                    days = left // (24 * 3600)
+                    hours = (left % (24 * 3600)) // 3600
+                    minutes = (left % 3600) // 60
+                    
+                    if days > 0:
+                        time_str = f"{days} nap {hours} óra"
+                    elif hours > 0:
+                        time_str = f"{hours} óra {minutes} perc"
+                    else:
+                        time_str = f"{minutes} perc"
+                    
+                    mode_cooldowns.append(f"⏳ **{label}**: {time_str}")
+        
+        # Add global cooldown info
+        global_last = data.get("cooldowns", {}).get(str(target_member.id), {}).get("_global", 0)
+        if global_last > 0:
+            left = int((global_last + COOLDOWN_SECONDS) - time.time())
+            if left > 0:
+                days = left // (24 * 3600)
+                hours = (left % (24 * 3600)) // 3600
+                mode_cooldowns.append(f"\n🌐 **Globális cooldown**: {days} nap {hours} óra")
+        
+        embed.description = "\n".join(mode_cooldowns)
+        embed.set_footer(text=f"Cooldown időtartam: 14 nap")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     try:
@@ -1485,6 +1607,7 @@ async def main():
         bot.tree.add_command(tierlistban, guild=g)
         bot.tree.add_command(tierlistunban, guild=g)
         bot.tree.add_command(removetierlist, guild=g)
+        bot.tree.add_command(cooldown, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
@@ -1496,6 +1619,7 @@ async def main():
         bot.tree.add_command(tierlistban)
         bot.tree.add_command(tierlistunban)
         bot.tree.add_command(removetierlist)
+        bot.tree.add_command(cooldown)
 
     try:
         await bot.start(DISCORD_TOKEN)
