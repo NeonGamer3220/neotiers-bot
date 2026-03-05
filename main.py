@@ -128,6 +128,56 @@ def cooldown_left(user_id: int, mode_key: str) -> int:
 
 
 # =========================
+# LINK SYSTEM (Discord -> Minecraft Account Linking)
+# =========================
+def _load_link_data() -> Dict[str, Any]:
+    if not os.path.exists("links.json"):
+        return {}
+    try:
+        with open("links.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_link_data(data: Dict[str, Any]) -> None:
+    with open("links.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_linked_minecraft_name(discord_id: int) -> Optional[str]:
+    """Get the Minecraft name linked to a Discord user"""
+    data = _load_link_data()
+    return data.get(str(discord_id))
+
+
+def link_minecraft_account(discord_id: int, minecraft_name: str) -> None:
+    """Link a Discord user to a Minecraft name"""
+    data = _load_link_data()
+    data[str(discord_id)] = minecraft_name
+    _save_link_data(data)
+
+
+def unlink_minecraft_account(discord_id: int) -> bool:
+    """Unlink a Discord user from their Minecraft name. Returns True if unlinked."""
+    data = _load_link_data()
+    if str(discord_id) in data:
+        del data[str(discord_id)]
+        _save_link_data(data)
+        return True
+    return False
+
+
+def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
+    """Get Discord ID by linked Minecraft name"""
+    data = _load_link_data()
+    for discord_id, mc_name in data.items():
+        if mc_name.lower() == minecraft_name.lower():
+            return int(discord_id)
+    return None
+
+
+# =========================
 # BAN SYSTEM
 # =========================
 def _load_ban_data() -> Dict[str, Any]:
@@ -1535,6 +1585,109 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
+@app_commands.describe(
+    name="A tierlistán szereplő Minecraft név"
+)
+async def link(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Check if already linked
+        existing = get_linked_minecraft_name(interaction.user.id)
+        if existing:
+            await interaction.followup.send(
+                f"❌ már össze vagy kapcsolva! Fiókod: **{existing}**\n"
+                f"Használd: `/unlink` ha le szeretnéd venni, majd próbáld újra.",
+                ephemeral=True
+            )
+            return
+        
+        # Check if this Minecraft name is already linked to another Discord
+        existing_discord = get_discord_by_minecraft(name)
+        if existing_discord:
+            await interaction.followup.send(
+                f"❌ ez a Minecraft fiók már össze van kapcsolva egy másik Discord fiókkal!\n"
+                f"Kérj segítséget a stafftól.",
+                ephemeral=True
+            )
+            return
+        
+        # Link the accounts
+        link_minecraft_account(interaction.user.id, name)
+        
+        embed = discord.Embed(
+            title="✅ Sikeres összekapcsolás!",
+            description=f"**Discord:** {interaction.user.mention}\n"
+                       f"**Minecraft:** {name}",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Most már a tied lesz a tierlistán ez a név!")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="unlink", description="Leválasztod a Minecraft fiókodat a Discord fiókodról.")
+async def unlink(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Check if linked
+        existing = get_linked_minecraft_name(interaction.user.id)
+        if not existing:
+            await interaction.followup.send(
+                "❌ Nincs összekapcsolva Minecraft fiók!\n"
+                "Használd: `/link <név>` hogy összekapcsold.",
+                ephemeral=True
+            )
+            return
+        
+        # Unlink
+        unlink_minecraft_account(interaction.user.id)
+        
+        embed = discord.Embed(
+            title="✅ Sikeres leválasztás!",
+            description=f"A Minecraft fiókod (**{existing}**) le lett választva a Discord fiókodról.",
+            color=discord.Color.green()
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="mylink", description="Megnézed az összekapcsolt Minecraft fiókodat.")
+async def mylink(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        linked = get_linked_minecraft_name(interaction.user.id)
+        
+        if not linked:
+            await interaction.followup.send(
+                "❌ Nincs összekapcsolva Minecraft fiók!\n"
+                "Használd: `/link <név>` hogy összekapcsold.",
+                ephemeral=True
+            )
+            return
+        
+        embed = discord.Embed(
+            title="📋 Összekapcsolt fiók",
+            description=f"**Discord:** {interaction.user.mention}\n"
+                       f"**Minecraft:** {linked}",
+            color=discord.Color.blurple()
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     try:
@@ -1608,6 +1761,9 @@ async def main():
         bot.tree.add_command(tierlistunban, guild=g)
         bot.tree.add_command(removetierlist, guild=g)
         bot.tree.add_command(cooldown, guild=g)
+        bot.tree.add_command(link, guild=g)
+        bot.tree.add_command(unlink, guild=g)
+        bot.tree.add_command(mylink, guild=g)
     else:
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
@@ -1620,6 +1776,9 @@ async def main():
         bot.tree.add_command(tierlistunban)
         bot.tree.add_command(removetierlist)
         bot.tree.add_command(cooldown)
+        bot.tree.add_command(link)
+        bot.tree.add_command(unlink)
+        bot.tree.add_command(mylink)
 
     try:
         await bot.start(DISCORD_TOKEN)
