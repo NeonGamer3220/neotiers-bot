@@ -408,6 +408,22 @@ async def start_health_server():
         # Link the Minecraft account to the Discord account
         link_minecraft_account(discord_id, minecraft_name)
         
+        # Send confirmation DM to the user
+        try:
+            user = await bot.fetch_user(discord_id)
+            if user:
+                embed = discord.Embed(
+                    title="✅ Összekapcsolás sikeres!",
+                    description=f"A Discord fiókod össze lett kapcsolva a **Minecraft** fiókkal!\n\n"
+                               f"**Minecraft név:** `{minecraft_name}`\n"
+                               f"**Összekapcsolva:** Örökre!",
+                    color=discord.Color.green()
+                )
+                embed.set_footer(text="Most már használhatod a tierlistát!")
+                await user.send(embed=embed)
+        except Exception as e:
+            print(f"Could not send DM to user: {e}")
+        
         return web.json_response({
             "success": True, 
             "discord_id": discord_id,
