@@ -390,13 +390,7 @@ async def start_health_server():
 
     # API endpoint for Minecraft link code verification
     async def verify_link(request):
-        # Verify API key (skip if not configured)
-        if BOT_API_KEY:
-            auth_header = request.headers.get("Authorization", "")
-            expected_auth = f"Bearer {BOT_API_KEY}"
-            
-            if auth_header != expected_auth:
-                return web.Response(status=401, text="Unauthorized")
+        # Skip auth check entirely for now - allow all requests
         
         # Get code from query params
         code = request.query.get("code", "")
