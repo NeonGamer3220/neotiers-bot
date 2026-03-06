@@ -16,19 +16,29 @@ from aiohttp import web
 
 import asyncpg
 
-# Database
+# Database - supports both Railway (DATABASE_URL) and Supabase (SUPABASE_URL)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+
+# Use Supabase if provided, otherwise use Railway
+DB_CONNECTION_STRING = SUPABASE_URL or DATABASE_URL
+
 db_pool: Optional[asyncpg.Pool] = None
 
 async def init_db():
     """Initialize database connection and create tables if needed"""
     global db_pool
-    if not DATABASE_URL:
-        print("WARNING: DATABASE_URL not set, linked accounts will not be persisted!")
+    if not DB_CONNECTION_STRING:
+        print("WARNING: Neither SUPABASE_URL nor DATABASE_URL is set, linked accounts will not be persisted!")
         return
     
     try:
-        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        # Supabase uses postgresql://, convert to postgres:// if needed
+        connection_str = DB_CONNECTION_STRING
+        if connection_str.startswith("postgresql://"):
+            connection_str = connection_str.replace("postgresql://", "postgres://", 1)
+        
+        db_pool = await asyncpg.create_pool(connection_str, min_size=1, max_size=5)
         
         # Create tables if they don't exist
         async with db_pool.acquire() as conn:
