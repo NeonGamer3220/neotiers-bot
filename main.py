@@ -884,6 +884,55 @@ class CloseTicketView(discord.ui.View):
         except Exception:
             pass
 
+    @discord.ui.button(label="Tier adása", style=discord.ButtonStyle.success, custom_id="neotiers_give_tier")
+    async def give_tier(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        """Give tier to the ticket owner - only for staff"""
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
+            return
+
+        # Only staff can give tier
+        if not is_staff_member(member):
+            await interaction.response.send_message("Nincs jogosultságod tier adásához.", ephemeral=True)
+            return
+
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
+            return
+
+        # Get owner_id from channel topic
+        topic = channel.topic or ""
+        owner_id = 0
+        if "owner=" in topic:
+            try:
+                owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
+            except (ValueError, IndexError):
+                owner_id = 0
+
+        if owner_id == 0:
+            await interaction.response.send_message("Hiba: nem találom a ticket tulajdonosát.", ephemeral=True)
+            return
+
+        # Get linked Minecraft name for the owner
+        linked_minecraft = get_linked_minecraft_name(owner_id)
+        if not linked_minecraft:
+            await interaction.response.send_message("❌ A játékos nincs összekapcsolva! Nem tudom a Minecraft nevét.", ephemeral=True)
+            return
+
+        # Get the owner member object
+        owner_member = channel.guild.get_member(owner_id)
+        if not owner_member:
+            await interaction.response.send_message("Hiba: nem találom a Discord felhasználót.", ephemeral=True)
+            return
+
+        # Send the tier result message
+        tier_role_id = 1469752490965864651
+        message = f"<@&{tier_role_id}> {owner_member.mention} ({linked_minecraft}) teszt eredménye"
+        
+        await interaction.response.send_message(message)
+
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
