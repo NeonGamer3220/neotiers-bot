@@ -226,47 +226,61 @@ def _save_link_data(data: Dict[str, Any]) -> None:
 
 async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
     """Get the Minecraft name linked to a Discord user (async)"""
-    if not db_pool:
-        print(f"WARNING: No db_pool when checking link for discord {discord_id}")
-        return None
-    try:
-        async with db_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT minecraft_name FROM linked_accounts WHERE discord_id = $1",
-                discord_id
-            )
-            if row:
-                print(f"FOUND: Linked minecraft {row['minecraft_name']} for discord {discord_id}")
-            else:
-                print(f"NOT FOUND: No link for discord {discord_id}")
-            return row['minecraft_name'] if row else None
-    except Exception as e:
-        print(f"Error getting linked minecraft name: {e}")
-        return None
+    # Try database first
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT minecraft_name FROM linked_accounts WHERE discord_id = $1",
+                    discord_id
+                )
+                if row:
+                    print(f"FOUND: Linked minecraft {row['minecraft_name']} for discord {discord_id} (DB)")
+                else:
+                    print(f"NOT FOUND in DB: No link for discord {discord_id}")
+                return row['minecraft_name'] if row else None
+        except Exception as e:
+            print(f"Error getting from database: {e}")
+    
+    # Fallback to JSON
+    print(f"FALLBACK: Checking JSON for discord {discord_id}")
+    data = _load_link_data()
+    result = data.get(str(discord_id))
+    if result:
+        print(f"FOUND: Linked minecraft {result} for discord {discord_id} (JSON)")
+    else:
+        print(f"NOT FOUND: No link for discord {discord_id} (JSON)")
+    return result
 
 
 async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> bool:
     """Link a Discord user to a Minecraft name (async)"""
-    if not db_pool:
-        print("WARNING: No db_pool, cannot save to database!")
-        return False
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO linked_accounts (discord_id, minecraft_name, linked_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (discord_id) DO UPDATE SET
-                    minecraft_name = EXCLUDED.minecraft_name,
-                    linked_at = NOW()
-                """,
-                discord_id, minecraft_name
-            )
-        print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name}")
-        return True
-    except Exception as e:
-        print(f"Error linking minecraft account: {e}")
-        return False
+    # Try database first
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO linked_accounts (discord_id, minecraft_name, linked_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (discord_id) DO UPDATE SET
+                        minecraft_name = EXCLUDED.minecraft_name,
+                        linked_at = NOW()
+                    """,
+                    discord_id, minecraft_name
+                )
+            print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name} (DB)")
+            return True
+        except Exception as e:
+            print(f"Error linking to database: {e}")
+    
+    # Fallback to JSON
+    print(f"FALLBACK: Saving to JSON for discord {discord_id}")
+    data = _load_link_data()
+    data[str(discord_id)] = minecraft_name
+    _save_link_data(data)
+    print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name} (JSON)")
+    return True
 
 
 async def unlink_minecraft_account_async(discord_id: int) -> bool:
