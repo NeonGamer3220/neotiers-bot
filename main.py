@@ -1742,6 +1742,19 @@ async def link(interaction: discord.Interaction, code: str = None):
     # If no code provided, generate a new one
     if code is None:
         try:
+            # Check if user is already linked
+            existing_link = get_linked_minecraft_name(interaction.user.id)
+            if existing_link:
+                embed = discord.Embed(
+                    title="⚠️ Már össze van kapcsolva!",
+                    description=f"**Minecraft:** `{existing_link}`\n"
+                               f"**Discord:** {interaction.user.mention}\n\n"
+                               f"A kettős fiók már össze van kapcsolva!",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
             # Check if user already has a pending code - if so, remove it and generate new one
             existing_code = get_pending_link_code(interaction.user.id)
             if existing_code:
