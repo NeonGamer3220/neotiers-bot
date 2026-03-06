@@ -1731,18 +1731,11 @@ async def link(interaction: discord.Interaction, code: str = None):
     # If no code provided, generate a new one
     if code is None:
         try:
-            # Check if user already has a pending code
+            # Check if user already has a pending code - if so, remove it and generate new one
             existing_code = get_pending_link_code(interaction.user.id)
             if existing_code:
-                embed = discord.Embed(
-                    title="📨 Már van aktív kódod!",
-                    description=f"A kódod: **{existing_code}**\n"
-                               f"Ezt használd a Minecraftban: `/link {existing_code}`\n"
-                               f"\nA kód **{LINK_CODE_EXPIRY_MINUTES} percig** érvényes.",
-                    color=discord.Color.orange()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
+                # Remove old code and generate new one
+                pass  # Will regenerate below
             
             # Generate new code
             new_code = generate_link_code(interaction.user.id)
