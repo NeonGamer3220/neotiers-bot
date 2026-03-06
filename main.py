@@ -38,6 +38,7 @@ async def init_db():
         if connection_str.startswith("postgresql://"):
             connection_str = connection_str.replace("postgresql://", "postgres://", 1)
         
+        print(f"Connecting to database: {connection_str[:50]}...")
         db_pool = await asyncpg.create_pool(connection_str, min_size=1, max_size=5)
         
         # Create tables if they don't exist
@@ -222,6 +223,7 @@ def _save_link_data(data: Dict[str, Any]) -> None:
 async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
     """Get the Minecraft name linked to a Discord user (async)"""
     if not db_pool:
+        print(f"WARNING: No db_pool when checking link for discord {discord_id}")
         return None
     try:
         async with db_pool.acquire() as conn:
@@ -229,6 +231,10 @@ async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
                 "SELECT minecraft_name FROM linked_accounts WHERE discord_id = $1",
                 discord_id
             )
+            if row:
+                print(f"FOUND: Linked minecraft {row['minecraft_name']} for discord {discord_id}")
+            else:
+                print(f"NOT FOUND: No link for discord {discord_id}")
             return row['minecraft_name'] if row else None
     except Exception as e:
         print(f"Error getting linked minecraft name: {e}")
@@ -238,6 +244,7 @@ async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
 async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> bool:
     """Link a Discord user to a Minecraft name (async)"""
     if not db_pool:
+        print("WARNING: No db_pool, cannot save to database!")
         return False
     try:
         async with db_pool.acquire() as conn:
@@ -251,6 +258,7 @@ async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> 
                 """,
                 discord_id, minecraft_name
             )
+        print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name}")
         return True
     except Exception as e:
         print(f"Error linking minecraft account: {e}")
