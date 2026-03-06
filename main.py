@@ -22,6 +22,9 @@ TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "0"))
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
 
+# Minecraft Verification API
+MINECRAFT_API_URL = os.getenv("MINECRAFT_API_URL", "http://localhost:8080").rstrip("/")
+
 WIPE_GLOBAL_COMMANDS = os.getenv("WIPE_GLOBAL_COMMANDS", "0") == "1"
 
 COOLDOWN_SECONDS = 14 * 24 * 60 * 60
@@ -178,6 +181,107 @@ def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
 
 
 # =========================
+# PENDING LINK CODES (Discord -> Minecraft linking with code)
+# =========================
+import random
+import string
+
+LINK_CODE_LENGTH = 8  # 6-8 characters
+LINK_CODE_EXPIRY_MINUTES = 10
+
+
+def _load_pending_link_codes() -> Dict[str, Any]:
+    if not os.path.exists("pending_links.json"):
+        return {}
+    try:
+        with open("pending_links.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_pending_link_codes(data: Dict[str, Any]) -> None:
+    with open("pending_links.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def generate_link_code(discord_id: int) -> str:
+    """Generate a new link code for a Discord user"""
+    # Generate random alphanumeric code
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=LINK_CODE_LENGTH))
+    
+    # Store with expiry time
+    data = _load_pending_link_codes()
+    data[code] = {
+        "discord_id": discord_id,
+        "expires_at": time.time() + (LINK_CODE_EXPIRY_MINUTES * 60)
+    }
+    _save_pending_link_codes(data)
+    
+    return code
+
+
+def verify_link_code(code: str) -> Optional[int]:
+    """Verify a link code and return Discord ID if valid, None if invalid/expired"""
+    data = _load_pending_link_codes()
+    
+    code_info = data.get(code.upper())
+    if not code_info:
+        return None
+    
+    # Check if expired
+    if time.time() > code_info.get("expires_at", 0):
+        # Remove expired code
+        data.pop(code.upper(), None)
+        _save_pending_link_codes(data)
+        return None
+    
+    discord_id = code_info.get("discord_id")
+    # Remove used code
+    data.pop(code.upper(), None)
+    _save_pending_link_codes(data)
+    
+    return discord_id
+
+
+def get_pending_link_code(discord_id: int) -> Optional[str]:
+    """Get existing pending code for a Discord user if any"""
+    data = _load_pending_link_codes()
+    for code, info in data.items():
+        if info.get("discord_id") == discord_id:
+            # Check if not expired
+            if time.time() < info.get("expires_at", 0):
+                return code
+    return None
+
+
+# =========================
+# MINECRAFT VERIFICATION API
+# =========================
+async def check_minecraft_verification(discord_id: int) -> Dict[str, Any]:
+    """Check if a Discord user is verified on the Minecraft server"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"{MINECRAFT_API_URL}/api/verify/minecraft/{discord_id}"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    return {"verified": False, "error": f"API returned {response.status}"}
+    except Exception as e:
+        return {"verified": False, "error": str(e)}
+
+
+async def is_minecraft_verified(discord_id: int) -> bool:
+    """Quick check if a Discord user is verified on Minecraft"""
+    try:
+        result = await check_minecraft_verification(discord_id)
+        return result.get("verified", False)
+    except Exception:
+        return False
+
+
+# =========================
 # BAN SYSTEM
 # =========================
 def _load_ban_data() -> Dict[str, Any]:
@@ -284,7 +388,39 @@ async def start_health_server():
     async def health(_request):
         return web.Response(text="ok")
 
+    # API endpoint for Minecraft link code verification
+    async def verify_link(request):
+        # Verify API key
+        auth_header = request.headers.get("Authorization", "")
+        expected_auth = f"Bearer {BOT_API_KEY}"
+        
+        if BOT_API_KEY and auth_header != expected_auth:
+            return web.Response(status=401, text="Unauthorized")
+        
+        # Get code from query params
+        code = request.query.get("code", "")
+        minecraft_name = request.query.get("minecraft", "")
+        
+        if not code or not minecraft_name:
+            return web.json_response({"success": False, "error": "Missing code or minecraft parameter"}, status=400)
+        
+        # Verify the code
+        discord_id = verify_link_code(code.upper())
+        
+        if discord_id is None:
+            return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
+        
+        # Link the Minecraft account to the Discord account
+        link_minecraft_account(discord_id, minecraft_name)
+        
+        return web.json_response({
+            "success": True, 
+            "discord_id": discord_id,
+            "minecraft": minecraft_name
+        })
+
     app.router.add_get("/health", health)
+    app.router.add_get("/api/link/verify", verify_link)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -1587,47 +1723,75 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
 
 @app_commands.command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
 @app_commands.describe(
-    name="A tierlistán szereplő Minecraft név"
+    code="A Minecraftban kapott összekapcsolási kód (opcionális, ha még nincs kódod)"
 )
-async def link(interaction: discord.Interaction, name: str):
+async def link(interaction: discord.Interaction, code: str = None):
     await interaction.response.defer(ephemeral=True)
 
-    try:
-        # Check if already linked
-        existing = get_linked_minecraft_name(interaction.user.id)
-        if existing:
-            await interaction.followup.send(
-                f"❌ már össze vagy kapcsolva! Fiókod: **{existing}**\n"
-                f"Használd: `/unlink` ha le szeretnéd venni, majd próbáld újra.",
-                ephemeral=True
+    # If no code provided, generate a new one
+    if code is None:
+        try:
+            # Check if user already has a pending code
+            existing_code = get_pending_link_code(interaction.user.id)
+            if existing_code:
+                embed = discord.Embed(
+                    title="📨 Már van aktív kódod!",
+                    description=f"A kódod: **{existing_code}**\n"
+                               f"Ezt használd a Minecraftban: `/link {existing_code}`\n"
+                               f"\nA kód **{LINK_CODE_EXPIRY_MINUTES} percig** érvényes.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Generate new code
+            new_code = generate_link_code(interaction.user.id)
+            
+            # Send code via DM
+            try:
+                await interaction.user.send(
+                    f"🎮 **Összekapcsolási kód:** `{new_code}`\n\n"
+                    f"Írd be a Minecraftban: `/link {new_code}`\n"
+                    f"A kód {LINK_CODE_EXPIRY_MINUTES} percig érvényes."
+                )
+                dm_sent = True
+            except:
+                dm_sent = False
+            
+            embed = discord.Embed(
+                title="✅ Kód generálva!",
+                description=f"```\n{new_code}\n```\n"
+                           f"Írd be a Minecraftban: `/link {new_code}`\n"
+                           f"A kód **{LINK_CODE_EXPIRY_MINUTES} percig** érvényes.",
+                color=discord.Color.green()
             )
+            if dm_sent:
+                embed.add_field(
+                    name="📬 DM elküldve!",
+                    value="A kódot elküldtem privát üzenetben is!",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="⚠️ DM nem sikerült",
+                    value="A kód itt látható, másold ki!",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
-        
-        # Check if this Minecraft name is already linked to another Discord
-        existing_discord = get_discord_by_minecraft(name)
-        if existing_discord:
-            await interaction.followup.send(
-                f"❌ ez a Minecraft fiók már össze van kapcsolva egy másik Discord fiókkal!\n"
-                f"Kérj segítséget a stafftól.",
-                ephemeral=True
-            )
+            
+        except Exception as e:
+            await interaction.followup.send(f"❌ Hiba a kód generálásakor: {type(e).__name__}: {e}", ephemeral=True)
             return
-        
-        # Link the accounts
-        link_minecraft_account(interaction.user.id, name)
-        
-        embed = discord.Embed(
-            title="✅ Sikeres összekapcsolás!",
-            description=f"**Discord:** {interaction.user.mention}\n"
-                       f"**Minecraft:** {name}",
-            color=discord.Color.green()
-        )
-        embed.set_footer(text="Most már a tied lesz a tierlistán ez a név!")
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+    
+    # If code IS provided - this is handled via Minecraft /link command API call now
+    # This branch is kept for backward compatibility but will show a message to use in-game
+    await interaction.followup.send(
+        "❌ A kódot a Minecraftban kell használnod!\n"
+        "Írd be a Minecraft chatbe: `/link <kód>`",
+        ephemeral=True
+    )
 
 
 @app_commands.command(name="unlink", description="Leválasztod a Minecraft fiókodat a Discord fiókodról.")
