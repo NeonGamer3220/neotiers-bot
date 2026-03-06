@@ -193,6 +193,22 @@ def cooldown_left(user_id: int, mode_key: str) -> int:
 # LINK SYSTEM (Discord -> Minecraft Account Linking) - Database Version
 # =========================
 
+# JSON fallback functions for linked accounts
+def _load_link_data() -> Dict[str, Any]:
+    if not os.path.exists("links.json"):
+        return {}
+    try:
+        with open("links.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_link_data(data: Dict[str, Any]) -> None:
+    with open("links.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
     """Get the Minecraft name linked to a Discord user (async)"""
     if not db_pool:
