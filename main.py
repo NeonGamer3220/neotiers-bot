@@ -16,12 +16,16 @@ from aiohttp import web
 
 import asyncpg
 
-# Database - supports both Railway (DATABASE_URL) and Supabase (SUPABASE_URL)
+# Database - Try Railway DATABASE_URL first, then Supabase
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 
-# Use Supabase if provided, otherwise use Railway
-DB_CONNECTION_STRING = SUPABASE_URL or DATABASE_URL
+# Use Railway first if available, otherwise try Supabase
+DB_CONNECTION_STRING = DATABASE_URL or SUPABASE_URL
+
+print(f"DATABASE_URL present: {bool(DATABASE_URL)}")
+print(f"SUPABASE_URL present: {bool(SUPABASE_URL)}")
+print(f"Will use: {DB_CONNECTION_STRING[:30] if DB_CONNECTION_STRING else 'NONE'}")
 
 db_pool: Optional[asyncpg.Pool] = None
 
