@@ -889,6 +889,17 @@ class TicketButton(discord.ui.Button):
             await interaction.response.send_message("Hiba: guild/member nem elérhető.", ephemeral=True)
             return
 
+        # Check if user has a linked Minecraft account
+        linked_minecraft = get_linked_minecraft_name(member.id)
+        if not linked_minecraft:
+            await interaction.response.send_message(
+                "❌ **Nincs összekapcsolva a Minecraft fiókod!**\n\n"
+                "Használd a `/link` parancsot a Discordban, majd `/link <kód>` a Minecraftban, "
+                "hogy összekapcsold a fiókodat. Csak azok hozhatnak létre ticketet, akik összekapcsolták a fiókjukat!",
+                ephemeral=True
+            )
+            return
+
         # Check if player is banned from testing
         # We need to check using the Discord username as the tierlist name
         # The tierlist name is the Minecraft name, not Discord name
