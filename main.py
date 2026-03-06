@@ -2,6 +2,9 @@ import os
 import json
 import time
 import asyncio
+import datetime
+import random
+import string
 from typing import Dict, Any, Optional
 
 import discord
@@ -10,6 +13,62 @@ from discord.ext import commands
 
 import aiohttp
 from aiohttp import web
+
+import asyncpg
+
+# Database
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+db_pool: Optional[asyncpg.Pool] = None
+
+async def init_db():
+    """Initialize database connection and create tables if needed"""
+    global db_pool
+    if not DATABASE_URL:
+        print("WARNING: DATABASE_URL not set, linked accounts will not be persisted!")
+        return
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        
+        # Create tables if they don't exist
+        async with db_pool.acquire() as conn:
+            # Create linked_accounts table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS linked_accounts (
+                    id SERIAL PRIMARY KEY,
+                    discord_id BIGINT NOT NULL UNIQUE,
+                    minecraft_name VARCHAR(255) NOT NULL,
+                    linked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            
+            # Create pending_codes table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_codes (
+                    id SERIAL PRIMARY KEY,
+                    discord_id BIGINT NOT NULL,
+                    code VARCHAR(8) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    used BOOLEAN DEFAULT FALSE
+                )
+            """)
+            
+            # Create indexes
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_discord ON linked_accounts(discord_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_minecraft ON linked_accounts(minecraft_name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_code ON pending_codes(code)")
+            
+        print("Database initialized successfully!")
+    except Exception as e:
+        print(f"Failed to initialize database: {e}")
+        db_pool = None
+
+async def close_db():
+    """Close database connection"""
+    global db_pool
+    if db_pool:
+        await db_pool.close()
 
 # =========================
 # ENV / CONFIG
@@ -131,31 +190,112 @@ def cooldown_left(user_id: int, mode_key: str) -> int:
 
 
 # =========================
-# LINK SYSTEM (Discord -> Minecraft Account Linking)
+# LINK SYSTEM (Discord -> Minecraft Account Linking) - Database Version
 # =========================
-def _load_link_data() -> Dict[str, Any]:
-    if not os.path.exists("links.json"):
-        return {}
+
+async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
+    """Get the Minecraft name linked to a Discord user (async)"""
+    if not db_pool:
+        return None
     try:
-        with open("links.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT minecraft_name FROM linked_accounts WHERE discord_id = $1",
+                discord_id
+            )
+            return row['minecraft_name'] if row else None
+    except Exception as e:
+        print(f"Error getting linked minecraft name: {e}")
+        return None
 
 
-def _save_link_data(data: Dict[str, Any]) -> None:
-    with open("links.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> bool:
+    """Link a Discord user to a Minecraft name (async)"""
+    if not db_pool:
+        return False
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO linked_accounts (discord_id, minecraft_name, linked_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (discord_id) DO UPDATE SET
+                    minecraft_name = EXCLUDED.minecraft_name,
+                    linked_at = NOW()
+                """,
+                discord_id, minecraft_name
+            )
+        return True
+    except Exception as e:
+        print(f"Error linking minecraft account: {e}")
+        return False
 
 
+async def unlink_minecraft_account_async(discord_id: int) -> bool:
+    """Unlink a Discord user from their Minecraft name. Returns True if unlinked."""
+    if not db_pool:
+        return False
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM linked_accounts WHERE discord_id = $1",
+                discord_id
+            )
+        return result == "DELETE 1"
+    except Exception as e:
+        print(f"Error unlinking minecraft account: {e}")
+        return False
+
+
+async def get_discord_by_minecraft_async(minecraft_name: str) -> Optional[int]:
+    """Get Discord ID by linked Minecraft name (async)"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT discord_id FROM linked_accounts WHERE LOWER(minecraft_name) = LOWER($1)",
+                minecraft_name
+            )
+            return row['discord_id'] if row else None
+    except Exception as e:
+        print(f"Error getting discord by minecraft: {e}")
+        return None
+
+
+# Synchronous versions that fall back to JSON if DB not available
 def get_linked_minecraft_name(discord_id: int) -> Optional[str]:
-    """Get the Minecraft name linked to a Discord user"""
+    """Get the Minecraft name linked to a Discord user (sync wrapper)"""
+    if db_pool:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an async context, we need to schedule this
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, get_linked_minecraft_name_async(discord_id))
+                    return future.result()
+            else:
+                return asyncio.run(get_linked_minecraft_name_async(discord_id))
+        except:
+            pass
+    # Fallback to JSON
     data = _load_link_data()
     return data.get(str(discord_id))
 
 
 def link_minecraft_account(discord_id: int, minecraft_name: str) -> None:
-    """Link a Discord user to a Minecraft name"""
+    """Link a Discord user to a Minecraft name (sync wrapper)"""
+    if db_pool:
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, link_minecraft_account_async(discord_id, minecraft_name))
+                if future.result():
+                    return
+        except:
+            pass
+    # Fallback to JSON
     data = _load_link_data()
     data[str(discord_id)] = minecraft_name
     _save_link_data(data)
@@ -163,6 +303,16 @@ def link_minecraft_account(discord_id: int, minecraft_name: str) -> None:
 
 def unlink_minecraft_account(discord_id: int) -> bool:
     """Unlink a Discord user from their Minecraft name. Returns True if unlinked."""
+    if db_pool:
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, unlink_minecraft_account_async(discord_id))
+                if future.result():
+                    return True
+        except:
+            pass
+    # Fallback to JSON
     data = _load_link_data()
     if str(discord_id) in data:
         del data[str(discord_id)]
@@ -172,6 +322,21 @@ def unlink_minecraft_account(discord_id: int) -> bool:
 
 
 def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
+    """Get Discord ID by linked Minecraft name (sync wrapper)"""
+    if db_pool:
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, get_discord_by_minecraft_async(minecraft_name))
+                return future.result()
+        except:
+            pass
+    # Fallback to JSON
+    data = _load_link_data()
+    for discord_id, mc_name in data.items():
+        if mc_name.lower() == minecraft_name.lower():
+            return int(discord_id)
+    return None
     """Get Discord ID by linked Minecraft name"""
     data = _load_link_data()
     for discord_id, mc_name in data.items():
@@ -183,13 +348,92 @@ def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
 # =========================
 # PENDING LINK CODES (Discord -> Minecraft linking with code)
 # =========================
-import random
-import string
 
 LINK_CODE_LENGTH = 8  # 6-8 characters
 LINK_CODE_EXPIRY_MINUTES = 10
 
 
+# =========================
+# PENDING CODES - Database versions
+# =========================
+
+async def generate_link_code_async(discord_id: int) -> str:
+    """Generate a new link code for a Discord user (async)"""
+    # Generate random alphanumeric code
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=LINK_CODE_LENGTH))
+    
+    if db_pool:
+        try:
+            expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=LINK_CODE_EXPIRY_MINUTES)
+            async with db_pool.acquire() as conn:
+                # Delete any existing pending codes for this user
+                await conn.execute(
+                    "DELETE FROM pending_codes WHERE discord_id = $1",
+                    discord_id
+                )
+                # Insert new code
+                await conn.execute(
+                    "INSERT INTO pending_codes (discord_id, code, created_at, expires_at, used) VALUES ($1, $2, NOW(), $3, FALSE)",
+                    discord_id, code, expires_at
+                )
+            return code
+        except Exception as e:
+            print(f"Error generating link code: {e}")
+    
+    # Fallback to JSON
+    data = _load_pending_link_codes()
+    # Remove any existing codes for this user
+    data = {k: v for k, v in data.items() if v.get("discord_id") != discord_id}
+    data[code] = {
+        "discord_id": discord_id,
+        "expires_at": time.time() + (LINK_CODE_EXPIRY_MINUTES * 60)
+    }
+    _save_pending_link_codes(data)
+    return code
+
+
+async def verify_link_code_async(code: str) -> Optional[int]:
+    """Verify a link code and return Discord ID if valid, None if invalid/expired (async)"""
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT discord_id FROM pending_codes WHERE UPPER(code) = UPPER($1) AND used = FALSE AND expires_at > NOW()",
+                    code
+                )
+                if row:
+                    # Mark code as used
+                    await conn.execute(
+                        "UPDATE pending_codes SET used = TRUE WHERE UPPER(code) = UPPER($1)",
+                        code
+                    )
+                    return row['discord_id']
+                return None
+        except Exception as e:
+            print(f"Error verifying link code: {e}")
+    
+    # Fallback to JSON
+    return verify_link_code(code)
+
+
+async def get_pending_link_code_async(discord_id: int) -> Optional[str]:
+    """Get existing pending code for a Discord user if any (async)"""
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT code FROM pending_codes WHERE discord_id = $1 AND used = FALSE AND expires_at > NOW()",
+                    discord_id
+                )
+                return row['code'] if row else None
+        except Exception as e:
+            print(f"Error getting pending link code: {e}")
+    
+    # Fallback to JSON
+    return get_pending_link_code(discord_id)
+
+
+# Synchronous fallbacks
 def _load_pending_link_codes() -> Dict[str, Any]:
     if not os.path.exists("pending_links.json"):
         return {}
@@ -400,13 +644,13 @@ async def start_health_server():
             return web.json_response({"success": False, "error": "Missing code or minecraft parameter"}, status=400)
         
         # Verify the code
-        discord_id = verify_link_code(code.upper())
+        discord_id = await verify_link_code_async(code.upper())
         
         if discord_id is None:
             return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
         
         # Link the Minecraft account to the Discord account
-        link_minecraft_account(discord_id, minecraft_name)
+        await link_minecraft_account_async(discord_id, minecraft_name)
         
         # Send confirmation DM to the user
         try:
@@ -1756,13 +2000,13 @@ async def link(interaction: discord.Interaction, code: str = None):
                 return
             
             # Check if user already has a pending code - if so, remove it and generate new one
-            existing_code = get_pending_link_code(interaction.user.id)
+            existing_code = await get_pending_link_code_async(interaction.user.id)
             if existing_code:
                 # Remove old code and generate new one
                 pass  # Will regenerate below
             
             # Generate new code
-            new_code = generate_link_code(interaction.user.id)
+            new_code = await generate_link_code_async(interaction.user.id)
             
             # Send code via DM
             try:
@@ -1923,6 +2167,9 @@ async def main():
     if not DISCORD_TOKEN:
         raise RuntimeError("DISCORD_TOKEN is missing")
 
+    # Initialize database
+    await init_db()
+
     http_session = aiohttp.ClientSession()
 
     # health server
@@ -1966,6 +2213,7 @@ async def main():
     finally:
         if http_session:
             await http_session.close()
+        await close_db()
 
 
 if __name__ == "__main__":
