@@ -2088,7 +2088,7 @@ async def link(interaction: discord.Interaction, code: str = None):
             try:
                 await interaction.user.send(
                     f"🎮 **Összekapcsolási kód:** `{new_code}`\n\n"
-                    f"**Minecraft szerver:** `play.neontiers.hu`\n"
+                    f"**Minecraft szerver:** `45.140.164.183:25942`\n"
                     f"Írd be a Minecraftban: `/link {new_code}`\n"
                     f"A kód {LINK_CODE_EXPIRY_MINUTES} percig érvényes."
                 )
@@ -2099,7 +2099,7 @@ async def link(interaction: discord.Interaction, code: str = None):
             embed = discord.Embed(
                 title="✅ Kód generálva!",
                 description=f"```\n{new_code}\n```\n"
-                           f"**Minecraft szerver:** `play.neontiers.hu`\n"
+                           f"**Minecraft szerver:** `45.140.164.183:25942`\n"
                            f"Írd be a Minecraftban: `/link {new_code}`\n"
                            f"A kód **{LINK_CODE_EXPIRY_MINUTES} percig** érvényes.",
                 color=discord.Color.green()
