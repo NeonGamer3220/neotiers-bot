@@ -17,8 +17,8 @@ from aiohttp import web
 import asyncpg
 
 # Database - Supabase REST Data API (recommended)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
 # Legacy PostgreSQL support (Railway/Supabase Direct)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -30,6 +30,8 @@ USE_SUPABASE_API = bool(SUPABASE_URL and SUPABASE_KEY)
 print(f"SUPABASE_URL present: {bool(SUPABASE_URL)}")
 print(f"SUPABASE_KEY present: {bool(SUPABASE_KEY)}")
 print(f"Using Supabase REST API: {USE_SUPABASE_API}")
+if USE_SUPABASE_API:
+    print(f"Supabase URL: {SUPABASE_URL}")
 print(f"DATABASE_URL present: {bool(DATABASE_URL)}")
 
 db_pool: Optional[asyncpg.Pool] = None
@@ -1240,14 +1242,20 @@ class CloseTicketView(discord.ui.View):
             await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
             return
 
-        # Get owner_id from channel topic
+        # Get owner_id and mode from channel topic
         topic = channel.topic or ""
         owner_id = 0
+        mode_key = ""
         if "owner=" in topic:
             try:
                 owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
             except (ValueError, IndexError):
                 owner_id = 0
+        if "mode=" in topic:
+            try:
+                mode_key = topic.split("mode=")[1].split("|")[0].strip()
+            except (ValueError, IndexError):
+                mode_key = ""
 
         if owner_id == 0:
             await interaction.response.send_message("Hiba: nem találom a ticket tulajdonosát.", ephemeral=True)
@@ -1259,17 +1267,114 @@ class CloseTicketView(discord.ui.View):
             await interaction.response.send_message("❌ A játékos nincs összekapcsolva! Nem tudom a Minecraft nevét.", ephemeral=True)
             return
 
-        # Get the owner member object
-        owner_member = channel.guild.get_member(owner_id)
+        # Show a select menu for tier selection (including mode)
+        tier_select = TierSelectView(owner_id, linked_minecraft, mode_key, member)
+        await interaction.response.send_message("Válaszd ki a játékmódot és a tier-t:", view=tier_select, ephemeral=True)
+
+
+class TierSelectView(discord.ui.View):
+    def __init__(self, owner_id: int, linked_minecraft: str, mode_key: str, tester: discord.Member):
+        super().__init__(timeout=60)
+        self.owner_id = owner_id
+        self.linked_minecraft = linked_minecraft
+        self.mode_key = mode_key
+        self.tester = tester
+        # Find the mode label from TICKET_TYPES
+        mode_label = mode_key
+        for label, key, _rid in TICKET_TYPES:
+            if key == mode_key:
+                mode_label = label
+                break
+        self.mode_label = mode_label
+        self.add_item(GameModeSelect(mode_label, mode_key))
+        self.add_item(TierSelect())
+
+
+class GameModeSelect(discord.ui.Select):
+    def __init__(self, mode_label: str, mode_key: str):
+        options = [discord.SelectOption(label=label, value=key) for label, key, _rid in TICKET_TYPES]
+        super().__init__(placeholder="Játékmód...", options=options, custom_id="gamemode_select")
+        self.mode_label = mode_label
+        self._default_value = mode_key
+
+    async def callback(self, interaction: discord.Interaction):
+        # Update the tier select's placeholder
+        await interaction.response.defer()
+
+
+class TierSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=rank, value=rank)
+            for rank in RANKS if rank != "Unranked"
+        ]
+        super().__init__(placeholder="Elért rang...", options=options, custom_id="tier_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_tier = self.values[0]
+        view = self.view
+        owner_id = view.owner_id
+        linked_minecraft = view.linked_minecraft
+        tester = view.tester
+        mode_key = view.mode_key
+        mode_label = view.mode_label
+
+        # Get the owner member
+        owner_member = interaction.guild.get_member(owner_id)
         if not owner_member:
             await interaction.response.send_message("Hiba: nem találom a Discord felhasználót.", ephemeral=True)
             return
 
-        # Send the tier result message
-        tier_role_id = 1469752490965864651
-        message = f"<@&{tier_role_id}> {owner_member.mention} ({linked_minecraft}) teszt eredménye"
-        
-        await interaction.response.send_message(message)
+        # Get previous rank from website
+        prev_rank = "Unranked"
+        if WEBSITE_URL:
+            try:
+                res = await api_get_tests(username=linked_minecraft, mode=mode_key)
+                if res.get("status") == 200:
+                    data = res.get("data", {})
+                    test = data.get("test")
+                    tests = data.get("tests", [])
+                    target = test if test else (tests[0] if tests else None)
+                    if target:
+                        prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
+            except Exception:
+                pass
+
+        # Create embed like /testresult
+        skin_url = f"https://minotar.net/helm/{linked_minecraft}/128.png"
+        embed = discord.Embed(
+            title=f"{linked_minecraft} teszt eredménye 🏆",
+            color=discord.Color.dark_grey()
+        )
+        embed.set_thumbnail(url=skin_url)
+        embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
+        embed.add_field(name="Játékmód:", value=mode_label, inline=False)
+        embed.add_field(name="Minecraft név:", value=linked_minecraft, inline=False)
+        embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
+        embed.add_field(name="Elért rang:", value=selected_tier, inline=False)
+
+        # Send to the test results channel
+        tier_channel_id = 1469752490965864651
+        tier_channel = interaction.guild.get_channel(tier_channel_id)
+        if tier_channel:
+            await tier_channel.send(embed=embed)
+        else:
+            await interaction.response.send_message("Hiba: nem találom a teszt eredmények csatornát.", ephemeral=True)
+            return
+
+        # Save to website
+        if WEBSITE_URL:
+            try:
+                save = await api_post_test(username=linked_minecraft, mode=mode_key, rank=selected_tier, tester=tester)
+                save_ok = (save.get("status") == 200 or save.get("status") == 201)
+                if save_ok:
+                    await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** és mentve a weboldalra!", ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** (weboldal mentés sikertelen)", ephemeral=True)
+            except Exception as e:
+                await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** (weboldal hiba: {e})", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
 
 
 class TicketPanelView(discord.ui.View):
