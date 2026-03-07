@@ -1327,9 +1327,12 @@ class TierSelect(discord.ui.Select):
 
         # Get previous rank from website
         prev_rank = "Unranked"
+        prev_points = 0
         if WEBSITE_URL:
             try:
+                print(f"Fetching previous rank for {linked_minecraft} in mode {mode_key}")
                 res = await api_get_tests(username=linked_minecraft, mode=mode_key)
+                print(f"API response: {res}")
                 if res.get("status") == 200:
                     data = res.get("data", {})
                     test = data.get("test")
@@ -1337,8 +1340,17 @@ class TierSelect(discord.ui.Select):
                     target = test if test else (tests[0] if tests else None)
                     if target:
                         prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
-            except Exception:
-                pass
+                        prev_points = POINTS.get(prev_rank, 0)
+                        print(f"Found previous rank: {prev_rank} = {prev_points} points")
+            except Exception as e:
+                print(f"Error fetching previous rank: {e}")
+
+        # Calculate new points
+        new_points = POINTS.get(selected_tier, 0)
+        diff = new_points - prev_points
+        points_str = f"+{diff}" if diff > 0 else str(diff)
+        if diff == 0:
+            points_str = "±0"
 
         # Create embed like /testresult
         skin_url = f"https://minotar.net/helm/{linked_minecraft}/128.png"
@@ -1350,8 +1362,9 @@ class TierSelect(discord.ui.Select):
         embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
         embed.add_field(name="Játékmód:", value=mode_label, inline=False)
         embed.add_field(name="Minecraft név:", value=linked_minecraft, inline=False)
-        embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
-        embed.add_field(name="Elért rang:", value=selected_tier, inline=False)
+        embed.add_field(name="Előző rang:", value=f"{prev_rank} ({prev_points} pont)", inline=False)
+        embed.add_field(name="Elért rang:", value=f"{selected_tier} ({new_points} pont)", inline=False)
+        embed.add_field(name="Pontok:", value=points_str, inline=False)
 
         # Send to the test results channel
         tier_channel_id = 1469752490965864651
