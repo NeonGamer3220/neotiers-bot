@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import random
 import string
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import discord
 from discord import app_commands
