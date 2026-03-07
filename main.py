@@ -16,24 +16,45 @@ from aiohttp import web
 
 import asyncpg
 
-# Database - Try Railway DATABASE_URL first, then Supabase
+# Database - Supabase REST Data API (recommended)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+# Legacy PostgreSQL support (Railway/Supabase Direct)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_PG_URL = os.getenv("SUPABASE_PG_URL", "")
 
-# Use Railway first if available, otherwise try Supabase
-DB_CONNECTION_STRING = DATABASE_URL or SUPABASE_URL
+# Use Supabase REST API if URL is set
+USE_SUPABASE_API = bool(SUPABASE_URL and SUPABASE_KEY)
 
-print(f"DATABASE_URL present: {bool(DATABASE_URL)}")
 print(f"SUPABASE_URL present: {bool(SUPABASE_URL)}")
-print(f"Will use: {DB_CONNECTION_STRING[:30] if DB_CONNECTION_STRING else 'NONE'}")
+print(f"SUPABASE_KEY present: {bool(SUPABASE_KEY)}")
+print(f"Using Supabase REST API: {USE_SUPABASE_API}")
+print(f"DATABASE_URL present: {bool(DATABASE_URL)}")
 
 db_pool: Optional[asyncpg.Pool] = None
+supabase_headers: Dict[str, str] = {}
 
 async def init_db():
-    """Initialize database connection and create tables if needed"""
-    global db_pool
+    """Initialize database connection - either Supabase REST API or PostgreSQL"""
+    global db_pool, supabase_headers
+    
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        supabase_headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+        print(f"Using Supabase REST API: {SUPABASE_URL}/rest/v1/")
+        print("Database initialized successfully!")
+        return
+    
+    # Fallback to PostgreSQL
+    DB_CONNECTION_STRING = DATABASE_URL or SUPABASE_PG_URL
     if not DB_CONNECTION_STRING:
-        print("WARNING: Neither SUPABASE_URL nor DATABASE_URL is set, linked accounts will not be persisted!")
+        print("WARNING: No database configured, linked accounts will not be persisted!")
         return
     
     try:
@@ -84,6 +105,150 @@ async def close_db():
     global db_pool
     if db_pool:
         await db_pool.close()
+
+# =========================
+# Supabase REST API Helpers
+# =========================
+
+async def supabase_select(table: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """Select rows from a table using Supabase REST API"""
+    if not USE_SUPABASE_API:
+        return []
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params = {}
+    if filters:
+        for key, value in filters.items():
+            params[key] = f"eq.{value}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=supabase_headers, params=params) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    print(f"Supabase select error: {resp.status} - {await resp.text()}")
+                    return []
+    except Exception as e:
+        print(f"Supabase select exception: {e}")
+        return []
+
+async def supabase_insert(table: str, data: Dict[str, Any]) -> bool:
+    """Insert a row into a table using Supabase REST API"""
+    if not USE_SUPABASE_API:
+        return False
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=supabase_headers, json=data) as resp:
+                if resp.status in (200, 201):
+                    return True
+                else:
+                    text = await resp.text()
+                    print(f"Supabase insert error: {resp.status} - {text}")
+                    if "duplicate" in text.lower() or "unique" in text.lower():
+                        return await supabase_upsert(table, data)
+                    return False
+    except Exception as e:
+        print(f"Supabase insert exception: {e}")
+        return False
+
+async def supabase_upsert(table: str, data: Dict[str, Any]) -> bool:
+    """Upsert a row into a table using Supabase REST API"""
+    if not USE_SUPABASE_API:
+        return False
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = supabase_headers.copy()
+    headers["Prefer"] = "resolution=merge-duplicates"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=data) as resp:
+                if resp.status in (200, 201):
+                    return True
+                else:
+                    print(f"Supabase upsert error: {resp.status} - {await resp.text()}")
+                    return False
+    except Exception as e:
+        print(f"Supabase upsert exception: {e}")
+        return False
+
+async def supabase_update(table: str, data: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+    """Update rows in a table using Supabase REST API"""
+    if not USE_SUPABASE_API:
+        return False
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params = {}
+    for key, value in filters.items():
+        params[key] = f"eq.{value}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url, headers=supabase_headers, json=data, params=params) as resp:
+                if resp.status in (200, 204):
+                    return True
+                else:
+                    print(f"Supabase update error: {resp.status} - {await resp.text()}")
+                    return False
+    except Exception as e:
+        print(f"Supabase update exception: {e}")
+        return False
+
+async def supabase_delete(table: str, filters: Dict[str, Any]) -> bool:
+    """Delete rows from a table using Supabase REST API"""
+    if not USE_SUPABASE_API:
+        return False
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params = {}
+    for key, value in filters.items():
+        params[key] = f"eq.{value}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(url, headers=supabase_headers, params=params) as resp:
+                if resp.status in (200, 204):
+                    return True
+                else:
+                    print(f"Supabase delete error: {resp.status} - {await resp.text()}")
+                    return False
+    except Exception as e:
+        print(f"Supabase delete exception: {e}")
+        return False
+
+def supabase_select_sync(table: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """Synchronous wrapper for select"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, supabase_select(table, filters))
+                return future.result()
+        else:
+            return asyncio.run(supabase_select(table, filters))
+    except Exception as e:
+        print(f"supabase_select_sync error: {e}")
+        return []
+
+def supabase_insert_sync(table: str, data: Dict[str, Any]) -> bool:
+    """Synchronous wrapper for insert"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, supabase_insert(table, data))
+                return future.result()
+        else:
+            return asyncio.run(supabase_insert(table, data))
+    except Exception as e:
+        print(f"supabase_insert_sync error: {e}")
+        return False
 
 # =========================
 # ENV / CONFIG
@@ -226,7 +391,19 @@ def _save_link_data(data: Dict[str, Any]) -> None:
 
 async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
     """Get the Minecraft name linked to a Discord user (async)"""
-    # Try database first
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            results = await supabase_select("linked_accounts", {"discord_id": str(discord_id)})
+            if results:
+                print(f"FOUND: Linked minecraft {results[0]['minecraft_name']} for discord {discord_id} (Supabase API)")
+                return results[0]['minecraft_name']
+            else:
+                print(f"NOT FOUND in Supabase: No link for discord {discord_id}")
+        except Exception as e:
+            print(f"Error getting from Supabase: {e}")
+    
+    # Try PostgreSQL pool
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
@@ -255,7 +432,20 @@ async def get_linked_minecraft_name_async(discord_id: int) -> Optional[str]:
 
 async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> bool:
     """Link a Discord user to a Minecraft name (async)"""
-    # Try database first
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            success = await supabase_upsert("linked_accounts", {
+                "discord_id": str(discord_id),
+                "minecraft_name": minecraft_name
+            })
+            if success:
+                print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name} (Supabase API)")
+                return True
+        except Exception as e:
+            print(f"Error linking to Supabase: {e}")
+    
+    # Try PostgreSQL pool
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
@@ -285,6 +475,16 @@ async def link_minecraft_account_async(discord_id: int, minecraft_name: str) -> 
 
 async def unlink_minecraft_account_async(discord_id: int) -> bool:
     """Unlink a Discord user from their Minecraft name. Returns True if unlinked."""
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            success = await supabase_delete("linked_accounts", {"discord_id": str(discord_id)})
+            if success:
+                print(f"SUCCESS: Unlinked discord {discord_id} (Supabase API)")
+                return True
+        except Exception as e:
+            print(f"Error unlinking from Supabase: {e}")
+    
     if not db_pool:
         return False
     try:
@@ -301,6 +501,15 @@ async def unlink_minecraft_account_async(discord_id: int) -> bool:
 
 async def get_discord_by_minecraft_async(minecraft_name: str) -> Optional[int]:
     """Get Discord ID by linked Minecraft name (async)"""
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            results = await supabase_select("linked_accounts", {"minecraft_name": minecraft_name})
+            if results:
+                return int(results[0]['discord_id'])
+        except Exception as e:
+            print(f"Error getting discord by minecraft from Supabase: {e}")
+    
     if not db_pool:
         return None
     try:
@@ -318,6 +527,16 @@ async def get_discord_by_minecraft_async(minecraft_name: str) -> Optional[int]:
 # Synchronous versions that fall back to JSON if DB not available
 def get_linked_minecraft_name(discord_id: int) -> Optional[str]:
     """Get the Minecraft name linked to a Discord user (sync wrapper)"""
+    # Try Supabase REST API
+    if USE_SUPABASE_API:
+        try:
+            results = supabase_select_sync("linked_accounts", {"discord_id": str(discord_id)})
+            if results:
+                print(f"FOUND: Linked minecraft {results[0]['minecraft_name']} for discord {discord_id} (Supabase API)")
+                return results[0]['minecraft_name']
+        except Exception as e:
+            print(f"Error getting from Supabase: {e}")
+    
     if db_pool:
         try:
             loop = asyncio.get_event_loop()
@@ -338,6 +557,19 @@ def get_linked_minecraft_name(discord_id: int) -> Optional[str]:
 
 def link_minecraft_account(discord_id: int, minecraft_name: str) -> None:
     """Link a Discord user to a Minecraft name (sync wrapper)"""
+    # Try Supabase REST API
+    if USE_SUPABASE_API:
+        try:
+            success = supabase_insert_sync("linked_accounts", {
+                "discord_id": str(discord_id),
+                "minecraft_name": minecraft_name
+            })
+            if success:
+                print(f"SUCCESS: Linked discord {discord_id} to minecraft {minecraft_name} (Supabase API)")
+                return
+        except Exception as e:
+            print(f"Error linking to Supabase: {e}")
+    
     if db_pool:
         try:
             import concurrent.futures
@@ -355,6 +587,18 @@ def link_minecraft_account(discord_id: int, minecraft_name: str) -> None:
 
 def unlink_minecraft_account(discord_id: int) -> bool:
     """Unlink a Discord user from their Minecraft name. Returns True if unlinked."""
+    # Try Supabase REST API
+    if USE_SUPABASE_API:
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, supabase_delete("linked_accounts", {"discord_id": str(discord_id)}))
+                if future.result():
+                    print(f"SUCCESS: Unlinked discord {discord_id} (Supabase API)")
+                    return True
+        except Exception as e:
+            print(f"Error unlinking from Supabase: {e}")
+    
     if db_pool:
         try:
             import concurrent.futures
@@ -375,6 +619,15 @@ def unlink_minecraft_account(discord_id: int) -> bool:
 
 def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
     """Get Discord ID by linked Minecraft name (sync wrapper)"""
+    # Try Supabase REST API
+    if USE_SUPABASE_API:
+        try:
+            results = supabase_select_sync("linked_accounts", {"minecraft_name": minecraft_name})
+            if results:
+                return int(results[0]['discord_id'])
+        except Exception as e:
+            print(f"Error getting discord by minecraft from Supabase: {e}")
+    
     if db_pool:
         try:
             import concurrent.futures
@@ -384,12 +637,6 @@ def get_discord_by_minecraft(minecraft_name: str) -> Optional[int]:
         except:
             pass
     # Fallback to JSON
-    data = _load_link_data()
-    for discord_id, mc_name in data.items():
-        if mc_name.lower() == minecraft_name.lower():
-            return int(discord_id)
-    return None
-    """Get Discord ID by linked Minecraft name"""
     data = _load_link_data()
     for discord_id, mc_name in data.items():
         if mc_name.lower() == minecraft_name.lower():
@@ -413,6 +660,26 @@ async def generate_link_code_async(discord_id: int) -> str:
     """Generate a new link code for a Discord user (async)"""
     # Generate random alphanumeric code
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=LINK_CODE_LENGTH))
+    
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=LINK_CODE_EXPIRY_MINUTES)
+            # Delete any existing pending codes for this user
+            await supabase_delete("pending_codes", {"discord_id": str(discord_id)})
+            # Insert new code
+            success = await supabase_insert("pending_codes", {
+                "discord_id": str(discord_id),
+                "code": code.upper(),
+                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "used": False
+            })
+            if success:
+                print(f"Generated link code {code} for discord {discord_id} (Supabase API)")
+                return code
+        except Exception as e:
+            print(f"Error generating link code in Supabase: {e}")
     
     if db_pool:
         try:
@@ -446,6 +713,26 @@ async def generate_link_code_async(discord_id: int) -> str:
 
 async def verify_link_code_async(code: str) -> Optional[int]:
     """Verify a link code and return Discord ID if valid, None if invalid/expired (async)"""
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            # First, get the code and check if valid
+            results = await supabase_select("pending_codes", {"code": code.upper(), "used": "false"})
+            if results:
+                # Check if not expired
+                expires_at = datetime.datetime.fromisoformat(results[0]['expires_at'].replace('Z', '+00:00'))
+                if expires_at > datetime.datetime.now(datetime.timezone.utc):
+                    discord_id = int(results[0]['discord_id'])
+                    # Mark code as used
+                    await supabase_update("pending_codes", {"used": True}, {"code": code.upper()})
+                    print(f"Verified link code {code} for discord {discord_id} (Supabase API)")
+                    return discord_id
+                else:
+                    print(f"Link code {code} expired")
+            return None
+        except Exception as e:
+            print(f"Error verifying link code in Supabase: {e}")
+    
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
@@ -470,6 +757,21 @@ async def verify_link_code_async(code: str) -> Optional[int]:
 
 async def get_pending_link_code_async(discord_id: int) -> Optional[str]:
     """Get existing pending code for a Discord user if any (async)"""
+    # Try Supabase REST API first
+    if USE_SUPABASE_API:
+        try:
+            # Get codes for this discord_id that are not used and not expired
+            results = await supabase_select("pending_codes", {"discord_id": str(discord_id)})
+            if results:
+                for row in results:
+                    if not row.get('used', False):
+                        expires_at = datetime.datetime.fromisoformat(row['expires_at'].replace('Z', '+00:00'))
+                        if expires_at > datetime.datetime.now(datetime.timezone.utc):
+                            return row['code']
+            return None
+        except Exception as e:
+            print(f"Error getting pending link code from Supabase: {e}")
+    
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
