@@ -1367,13 +1367,20 @@ class TierSelect(discord.ui.Select):
         embed.add_field(name="Pontok:", value=points_str, inline=False)
 
         # Send to the test results channel
-        tier_channel_id = 1469752490965864651
-        tier_channel = interaction.guild.get_channel(tier_channel_id)
+        tier_channel_id = int(os.getenv("TIER_RESULTS_CHANNEL_ID", "0"))
+        if not tier_channel_id:
+            # Fallback: try to find channel by name
+            tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
+            if not tier_channel:
+                tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
+        else:
+            tier_channel = interaction.guild.get_channel(tier_channel_id)
+        
         if tier_channel:
             await tier_channel.send(embed=embed)
         else:
-            await interaction.response.send_message("Hiba: nem találom a teszt eredmények csatornát.", ephemeral=True)
-            return
+            # Log warning but continue with saving
+            print(f"Warning: Could not find tier results channel")
 
         # Save to website
         if WEBSITE_URL:
