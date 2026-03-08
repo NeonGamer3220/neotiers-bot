@@ -1367,20 +1367,35 @@ class TierSelect(discord.ui.Select):
         embed.add_field(name="Pontok:", value=points_str, inline=False)
 
         # Send to the test results channel
-        tier_channel_id = int(os.getenv("TIER_RESULTS_CHANNEL_ID", "0"))
+        tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
+        print(f"DEBUG: TIER_RESULTS_CHANNEL_ID env var: {tier_channel_id_str}")
+        
+        tier_channel_id = 0
+        try:
+            tier_channel_id = int(tier_channel_id_str)
+        except ValueError:
+            print(f"DEBUG: Could not parse tier_channel_id: {tier_channel_id_str}")
+        
+        print(f"DEBUG: Parsed tier_channel_id: {tier_channel_id}")
+        print(f"DEBUG: interaction.guild.id: {interaction.guild.id}")
+        
         if not tier_channel_id:
             # Fallback: try to find channel by name
             tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
             if not tier_channel:
                 tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
+                if not tier_channel:
+                    tier_channel = discord.utils.get(interaction.guild.text_channels, name="eredmenyek")
         else:
             tier_channel = interaction.guild.get_channel(tier_channel_id)
+            print(f"DEBUG: Got channel object: {tier_channel}")
         
         if tier_channel:
+            print(f"DEBUG: Sending embed to channel: {tier_channel.name} ({tier_channel.id})")
             await tier_channel.send(embed=embed)
         else:
             # Log warning but continue with saving
-            print(f"Warning: Could not find tier results channel")
+            print(f"Warning: Could not find tier results channel. Searched for ID: {tier_channel_id}")
 
         # Save to website
         if WEBSITE_URL:
@@ -1671,6 +1686,30 @@ async def testresult(
         embed.add_field(name="Elért rang:", value=rank_val, inline=False)
 
         await interaction.channel.send(embed=embed)
+
+        # Also send to the test results channel
+        tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
+        try:
+            tier_channel_id = int(tier_channel_id_str)
+        except ValueError:
+            tier_channel_id = 0
+        
+        if tier_channel_id:
+            tier_channel = interaction.guild.get_channel(tier_channel_id)
+            if tier_channel:
+                await tier_channel.send(embed=embed)
+                print(f"DEBUG: /testresult also sent to results channel: {tier_channel.name}")
+            else:
+                print(f"DEBUG: /testresult could not find results channel with ID: {tier_channel_id}")
+        else:
+            # Try fallback by name
+            tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
+            if tier_channel:
+                await tier_channel.send(embed=embed)
+            else:
+                tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
+                if tier_channel:
+                    await tier_channel.send(embed=embed)
 
         # SAVE TO WEBSITE (UPsert)
         if not WEBSITE_URL:
