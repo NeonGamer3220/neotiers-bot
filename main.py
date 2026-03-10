@@ -1330,14 +1330,33 @@ class TierSelect(discord.ui.Select):
         prev_points = 0
         if WEBSITE_URL:
             try:
-                print(f"Fetching previous rank for {linked_minecraft} in mode {mode_key}")
-                res = await api_get_tests(username=linked_minecraft, mode=mode_key)
+                # Normalize mode to lowercase for API call
+                mode_param = mode_key.lower()
+                print(f"Fetching previous rank for {linked_minecraft} in mode {mode_param}")
+                res = await api_get_tests(username=linked_minecraft, mode=mode_param)
                 print(f"API response: {res}")
                 if res.get("status") == 200:
                     data = res.get("data", {})
                     test = data.get("test")
                     tests = data.get("tests", [])
-                    target = test if test else (tests[0] if tests else None)
+                    
+                    # Find the best (highest points) test result for this mode
+                    target = None
+                    if test:
+                        target = test
+                    elif tests:
+                        # If multiple tests, find the one with highest points for this mode
+                        best_test = None
+                        best_points = -1
+                        for t in tests:
+                            t_mode = str(t.get("gamemode", "")).lower()
+                            t_rank = str(t.get("rank", "Unranked"))
+                            t_points = POINTS.get(t_rank, 0)
+                            if t_mode == mode_param and t_points > best_points:
+                                best_points = t_points
+                                best_test = t
+                        target = best_test
+                    
                     if target:
                         prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
                         prev_points = POINTS.get(prev_rank, 0)
@@ -1400,7 +1419,9 @@ class TierSelect(discord.ui.Select):
         # Save to website
         if WEBSITE_URL:
             try:
-                save = await api_post_test(username=linked_minecraft, mode=mode_key, rank=selected_tier, tester=tester)
+                # Normalize mode to lowercase before saving
+                mode_to_save = mode_key.lower()
+                save = await api_post_test(username=linked_minecraft, mode=mode_to_save, rank=selected_tier, tester=tester)
                 save_ok = (save.get("status") == 200 or save.get("status") == 201)
                 if save_ok:
                     await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** és mentve a weboldalra!", ephemeral=True)
@@ -1716,7 +1737,9 @@ async def testresult(
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva, nem mentem webre.", ephemeral=True)
             return
 
-        save = await api_post_test(username=username, mode=mode_val, rank=rank_val, tester=tester)
+        # Normalize mode to lowercase before saving
+        mode_to_save = mode_val.lower()
+        save = await api_post_test(username=username, mode=mode_to_save, rank=rank_val, tester=tester)
         save_status = save.get("status")
         save_data = save.get("data")
         save_ok = (save_status == 200 or save_status == 201)
