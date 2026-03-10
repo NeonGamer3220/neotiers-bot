@@ -2849,7 +2849,7 @@ async def main():
     # health server
     asyncio.create_task(start_health_server())
 
-    # register commands (guild-scoped for instant updates)
+    # register commands - Use guild commands only (faster sync, avoids duplicates)
     if GUILD_ID:
         g = discord.Object(id=GUILD_ID)
         bot.tree.add_command(ticketpanel, guild=g)
@@ -2867,6 +2867,7 @@ async def main():
         bot.tree.add_command(unlink, guild=g)
         bot.tree.add_command(mylink, guild=g)
     else:
+        # Only register as global if no GUILD_ID
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
         bot.tree.add_command(tierlistnamechange)
