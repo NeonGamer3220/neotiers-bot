@@ -2030,13 +2030,14 @@ async def profile(interaction: discord.Interaction, name: str):
 @app_commands.command(name="porog", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
 @app_commands.describe(
     gamemode="A játékmód (pl. sword, pot, smp)",
-    tier="A tier (pl. ht3, lt1)"
+    tier="A tier (pl. ht3, lt1)",
+    sajat="Include self in roll (default: no)"
 )
 @app_commands.choices(
     gamemode=_choices_from_list(MODE_LIST),
     tier=_choices_from_list(RANKS)
 )
-async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[str], tier: app_commands.Choice[str]):
+async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[str], tier: app_commands.Choice[str], sajat: bool = False):
     await interaction.response.defer(ephemeral=False)
 
     try:
@@ -2048,15 +2049,16 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
 
-        # Try to exclude the ticket owner
+        # Try to exclude the ticket owner (unless sajat=True)
         exclude_user = None
-        channel = interaction.channel
-        if channel and channel.name:
-            # Channel name is like "sword-username" where username is discord name
-            # We can try to use this to exclude
-            parts = channel.name.split("-")
-            if len(parts) > 1:
-                exclude_user = parts[1] # The part after the mode
+        if not sajat:
+            channel = interaction.channel
+            if channel and channel.name:
+                # Channel name is like "sword-username" where username is discord name
+                # We can try to use this to exclude
+                parts = channel.name.split("-")
+                if len(parts) > 1:
+                    exclude_user = parts[1] # The part after the mode
 
         # Build URL with exclusion if we found someone
         url = f"{WEBSITE_URL}/api/tests?mode={gamemode.value}&tier={tier.value}"
