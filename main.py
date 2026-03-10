@@ -2052,13 +2052,8 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
         # Try to exclude the ticket owner (unless sajat=True)
         exclude_user = None
         if not sajat:
-            channel = interaction.channel
-            if channel and channel.name:
-                # Channel name is like "sword-username" where username is discord name
-                # We can try to use this to exclude
-                parts = channel.name.split("-")
-                if len(parts) > 1:
-                    exclude_user = parts[1] # The part after the mode
+            # Use Discord user's display name to exclude
+            exclude_user = interaction.user.display_name.lower().replace(" ", "-")
 
         # Build URL with exclusion if we found someone
         url = f"{WEBSITE_URL}/api/tests?mode={gamemode.value}&tier={tier.value}"
