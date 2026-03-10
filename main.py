@@ -1114,7 +1114,29 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
 async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
-
+    
+    # First, check for and delete any duplicates with different case
+    try:
+        # Get all tests for this user
+        check_url = f"{WEBSITE_URL}/api/tests?username={username}"
+        async with http_session.get(check_url, headers=_auth_headers(), timeout=timeout) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                tests = data.get("data", {}).get("tests", [])
+                # Find duplicates with different case for this mode
+                normalized_mode = mode.lower()
+                for test in tests:
+                    test_mode = str(test.get("gamemode", "")).lower()
+                    if test_mode == normalized_mode and str(test.get("gamemode", "")) != mode:
+                        # Found duplicate with different casing - delete it
+                        test_id = test.get("id")
+                        if test_id:
+                            delete_url = f"{WEBSITE_URL}/api/tests/{test_id}"
+                            async with http_session.delete(delete_url, headers=_auth_headers(), timeout=timeout) as del_resp:
+                                print(f"Deleted duplicate entry: {test.get('gamemode')} for {username}")
+    except Exception as e:
+        print(f"Error cleaning duplicates: {e}")
+    
     url = f"{WEBSITE_URL}/api/tests"
     payload = {
         "username": username,
