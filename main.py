@@ -315,6 +315,51 @@ POINTS = {
     "LT1": 14, "HT1": 18,
 }
 
+# Mapping from database gamemode names to bot code keys
+# This handles differences between database naming and bot TICKET_TYPES
+GAMEMODE_ALIASES = {
+    # Database name variations -> TICKET_TYPES key (lowercase)
+    "ogv": "ogvanilla",
+    "ogvanilla": "ogvanilla",
+    "nethpot": "nethpot",
+    "uhc": "uhc",
+    "shieldlessuhc": "shieldlessuhc",
+    "spearmace": "spearmace",
+    "spearelytra": "spearelytra",
+}
+
+# Reverse mapping: bot keys (lowercase) -> proper display names
+GAMEMODE_DISPLAY_NAMES = {
+    "vanilla": "Vanilla",
+    "uhc": "UHC",
+    "pot": "Pot",
+    "nethpot": "NethPot",
+    "smp": "SMP",
+    "sword": "Sword",
+    "axe": "Axe",
+    "mace": "Mace",
+    "cart": "Cart",
+    "creeper": "Creeper",
+    "diasmp": "DiaSMP",
+    "ogvanilla": "OGV",
+    "shieldlessuhc": "ShieldlessUHC",
+    "spearmace": "SpearMace",
+    "spearelytra": "SpearElytra",
+}
+
+def normalize_gamemode(mode: str) -> str:
+    """Normalize gamemode name to bot's TICKET_TYPES key format"""
+    if not mode:
+        return mode
+    normalized = mode.lower().strip()
+    return GAMEMODE_ALIASES.get(normalized, normalized)
+
+def get_gamemode_display_name(mode_key: str) -> str:
+    """Get proper display name for a gamemode key"""
+    if not mode_key:
+        return mode_key
+    return GAMEMODE_DISPLAY_NAMES.get(mode_key.lower().strip(), mode_key)
+
 
 # =========================
 # STORAGE
@@ -1330,8 +1375,8 @@ class TierSelect(discord.ui.Select):
         prev_points = 0
         if WEBSITE_URL:
             try:
-                # Normalize mode to lowercase for API call
-                mode_param = mode_key.lower()
+                # Normalize mode to match bot's TICKET_TYPES
+                mode_param = normalize_gamemode(mode_key)
                 print(f"Fetching previous rank for {linked_minecraft} in mode {mode_param}")
                 res = await api_get_tests(username=linked_minecraft, mode=mode_param)
                 print(f"API response: {res}")
@@ -1419,8 +1464,8 @@ class TierSelect(discord.ui.Select):
         # Save to website
         if WEBSITE_URL:
             try:
-                # Normalize mode to lowercase before saving
-                mode_to_save = mode_key.lower()
+                # Normalize mode to proper display name before saving
+                mode_to_save = get_gamemode_display_name(mode_key)
                 save = await api_post_test(username=linked_minecraft, mode=mode_to_save, rank=selected_tier, tester=tester)
                 save_ok = (save.get("status") == 200 or save.get("status") == 201)
                 if save_ok:
@@ -1737,8 +1782,8 @@ async def testresult(
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva, nem mentem webre.", ephemeral=True)
             return
 
-        # Normalize mode to lowercase before saving
-        mode_to_save = mode_val.lower()
+        # Normalize mode to proper display name before saving
+        mode_to_save = get_gamemode_display_name(mode_val)
         save = await api_post_test(username=username, mode=mode_to_save, rank=rank_val, tester=tester)
         save_status = save.get("status")
         save_data = save.get("data")
