@@ -1773,9 +1773,7 @@ async def testresult(
         embed.add_field(name="Előző rang:", value=prev_rank, inline=False)
         embed.add_field(name="Elért rang:", value=rank_val, inline=False)
 
-        await interaction.channel.send(embed=embed)
-
-        # Also send to the test results channel
+        # Only send to the results channel (eredmenyek), not the command channel
         tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
         try:
             tier_channel_id = int(tier_channel_id_str)
