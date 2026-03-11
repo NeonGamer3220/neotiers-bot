@@ -2519,12 +2519,12 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@app_commands.command(name="bulkimport", description="Bulk import test results (admin only)")
+@app_commands.command(name="bulkimport", description="Bulk import test results from file (admin only)")
 @app_commands.describe(
-    data="Test results in format: username mode rank (one per line)"
+    file="Text file with test results (one per line: username mode rank)"
 )
-async def bulkimport(interaction: discord.Interaction, data: str):
-    """Bulk import test results - format: username mode rank (one per line)"""
+async def bulkimport(interaction: discord.Interaction, file: discord.Attachment):
+    """Bulk import test results from a text file - format: username mode rank (one per line)"""
     await interaction.response.defer(ephemeral=True)
     
     # Check if admin
@@ -2534,6 +2534,14 @@ async def bulkimport(interaction: discord.Interaction, data: str):
     
     if not WEBSITE_URL:
         await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+        return
+    
+    # Read file content
+    try:
+        content = await file.read()
+        data = content.decode('utf-8')
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba a fájl olvasásakor: {e}", ephemeral=True)
         return
     
     lines = data.strip().split('\n')
