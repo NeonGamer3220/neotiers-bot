@@ -2519,6 +2519,69 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="bulkimport", description="Bulk import test results (admin only)")
+@app_commands.describe(
+    data="Test results in format: username mode rank (one per line)"
+)
+async def bulkimport(interaction: discord.Interaction, data: str):
+    """Bulk import test results - format: username mode rank (one per line)"""
+    await interaction.response.defer(ephemeral=True)
+    
+    # Check if admin
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.followup.send("Nincs jogosultságod ehhez.", ephemeral=True)
+        return
+    
+    if not WEBSITE_URL:
+        await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+        return
+    
+    lines = data.strip().split('\n')
+    success_count = 0
+    error_count = 0
+    errors = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        parts = line.split()
+        if len(parts) < 3:
+            error_count += 1
+            errors.append(f"Invalid format: {line}")
+            continue
+            
+        username = parts[0]
+        mode = parts[1].lower()
+        rank = parts[2].upper()
+        
+        # Get proper display name for mode
+        mode_display = get_gamemode_display_name(mode)
+        
+        # Get tester (use bot as tester)
+        tester = interaction.user
+        
+        try:
+            save = await api_post_test(username=username, mode=mode_display, rank=rank, tester=tester)
+            if save.get("status") in [200, 201]:
+                success_count += 1
+            else:
+                error_count += 1
+                errors.append(f"Failed: {username} {mode} {rank}")
+        except Exception as e:
+            error_count += 1
+            errors.append(f"Error: {username} - {str(e)[:50]}")
+    
+    result_msg = f"✅ Sikeres import: {success_count}\n❌ Sikertelen: {error_count}"
+    if errors:
+        result_msg += "\n\nHibák:\n" + "\n".join(errors[:10])
+        if len(errors) > 10:
+            result_msg += f"\n... és még {len(errors) - 10} hiba"
+    
+    await interaction.followup.send(result_msg, ephemeral=True)
+
+
 @app_commands.command(name="cooldown", description="Megnézed a cooldownidat egy játékmódban, vagy egy másik játékos cooldownját (staff).")
 @app_commands.describe(
     user="Játékos (ha üres, a sajátodat nézed meg)"
@@ -2863,6 +2926,7 @@ async def main():
         bot.tree.add_command(tierlistunban, guild=g)
         bot.tree.add_command(removetierlist, guild=g)
         bot.tree.add_command(cooldown, guild=g)
+        bot.tree.add_command(bulkimport, guild=g)
         bot.tree.add_command(link, guild=g)
         bot.tree.add_command(unlink, guild=g)
         bot.tree.add_command(mylink, guild=g)
@@ -2879,6 +2943,7 @@ async def main():
         bot.tree.add_command(tierlistunban)
         bot.tree.add_command(removetierlist)
         bot.tree.add_command(cooldown)
+        bot.tree.add_command(bulkimport)
         bot.tree.add_command(link)
         bot.tree.add_command(unlink)
         bot.tree.add_command(mylink)
