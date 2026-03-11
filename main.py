@@ -341,7 +341,7 @@ GAMEMODE_DISPLAY_NAMES = {
     "cart": "Cart",
     "creeper": "Creeper",
     "diasmp": "DiaSMP",
-    "ogvanilla": "OGV",
+    "ogvanilla": "OGVanilla",
     "shieldlessuhc": "ShieldlessUHC",
     "spearmace": "SpearMace",
     "spearelytra": "SpearElytra",
