@@ -2717,8 +2717,11 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
 async def link(interaction: discord.Interaction, code: str = None):
     await interaction.response.defer(ephemeral=True)
 
-    # If no code provided, generate a new one
-    if code is None:
+    # Debug: log what code value we received
+    print(f"[LINK] User: {interaction.user.id}, code: {repr(code)}")
+    
+    # If no code provided (or empty), generate a new one
+    if code is None or code == "":
         try:
             # Check if user is already linked (try async first, then sync fallback)
             existing_link = get_linked_minecraft_name(interaction.user.id)
@@ -2739,6 +2742,7 @@ async def link(interaction: discord.Interaction, code: str = None):
                 embed = discord.Embed(
                     title="⏳ Már van egy kódod!",
                     description=f"A meglévő kódod: `{existing_code}`\n\n"
+                               f"**Minecraft szerver:** `45.140.164.183:25942`\n"
                                f"Ezt használd: `/link {existing_code}` a Minecraftban!\n"
                                f"Vagy várd meg amíg lejár és generálj újat.",
                     color=discord.Color.orange()
@@ -2786,7 +2790,13 @@ async def link(interaction: discord.Interaction, code: str = None):
             return
             
         except Exception as e:
-            await interaction.followup.send(f"❌ Hiba a kód generálásakor: {type(e).__name__}: {e}", ephemeral=True)
+            # Log the error for debugging
+            print(f"[LINK ERROR] {type(e).__name__}: {e}")
+            await interaction.followup.send(
+                f"❌ Hiba történt. Kérlek, próbáld újra!\n"
+                f"Ha a hiba továbbra is fennáll, jelentsd a hibát.",
+                ephemeral=True
+            )
             return
     
     # If code IS provided - this is handled via Minecraft /link command API call now
