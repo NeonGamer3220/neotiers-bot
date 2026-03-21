@@ -818,6 +818,24 @@ async def get_pending_link_code_async(discord_id: int) -> Optional[str]:
             return None
         except Exception as e:
             print(f"Error getting pending link code from Supabase: {e}")
+
+
+async def validate_link_code_for_user(discord_id: int, code: str) -> bool:
+    """Check if a code belongs to the specified user (async)"""
+    if USE_SUPABASE_API:
+        try:
+            results = await supabase_select("pending_codes", {"discord_id": str(discord_id), "code": code})
+            if results:
+                for row in results:
+                    if not row.get('used', False):
+                        expires_at = datetime.datetime.fromisoformat(row['expires_at'].replace('Z', '+00:00'))
+                        if expires_at > datetime.datetime.now(datetime.timezone.utc):
+                            return True
+            return False
+        except Exception as e:
+            print(f"Error validating link code from Supabase: {e}")
+            return False
+    return False
     
     if db_pool:
         try:
@@ -2717,11 +2735,12 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
 async def link(interaction: discord.Interaction, code: str = None):
     await interaction.response.defer(ephemeral=True)
 
-    # Debug: log what code value we received
-    print(f"[LINK] User: {interaction.user.id}, code: {repr(code)}")
+    # If no code provided (or empty), or if code doesn't belong to user, generate a new one
+    code_valid = False
+    if code and code != "":
+        code_valid = await validate_link_code_for_user(interaction.user.id, code)
     
-    # If no code provided (or empty), generate a new one
-    if code is None or code == "":
+    if code is None or code == "" or not code_valid:
         try:
             # Check if user is already linked (try async first, then sync fallback)
             existing_link = get_linked_minecraft_name(interaction.user.id)
