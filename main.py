@@ -1804,17 +1804,19 @@ async def testresult(
             if tier_channel:
                 await tier_channel.send(embed=embed)
                 print(f"DEBUG: /testresult also sent to results channel: {tier_channel.name}")
+                return
             else:
                 print(f"DEBUG: /testresult could not find results channel with ID: {tier_channel_id}")
-        else:
-            # Try fallback by name
-            tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
-            if tier_channel:
-                await tier_channel.send(embed=embed)
-            else:
-                tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
-                if tier_channel:
-                    await tier_channel.send(embed=embed)
+        
+        # Try fallback by name
+        tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
+        if tier_channel:
+            await tier_channel.send(embed=embed)
+            return
+        tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
+        if tier_channel:
+            await tier_channel.send(embed=embed)
+            return
 
         # SAVE TO WEBSITE (UPsert)
         if not WEBSITE_URL:
