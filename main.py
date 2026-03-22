@@ -1133,6 +1133,8 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
     
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    
     # First, check for and delete any duplicates with different case
     try:
         # Get all tests for this user
@@ -1166,7 +1168,6 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
         "ts": int(time.time()),
     }
 
-    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
     async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
         try:
             data = await resp.json()
