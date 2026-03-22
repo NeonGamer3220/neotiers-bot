@@ -1164,7 +1164,7 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
     url = f"{WEBSITE_URL}/api/tests"
     payload = {
         "username": username,
-        "mode": mode,
+        "mode": mode.lower(),  # Normalize to lowercase for consistent upsert
         "rank": rank,
         "testerId": str(tester.id),
         "testerName": tester.display_name,
