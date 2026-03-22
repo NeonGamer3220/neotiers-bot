@@ -333,7 +333,7 @@ GAMEMODE_DISPLAY_NAMES = {
     "vanilla": "Vanilla",
     "uhc": "UHC",
     "pot": "Pot",
-    "nethpot": "NethPot",
+    "nethpot": "NethPot",  # Note: capital P for NethPot
     "smp": "SMP",
     "sword": "Sword",
     "axe": "Axe",
@@ -358,6 +358,10 @@ def get_gamemode_display_name(mode_key: str) -> str:
     """Get proper display name for a gamemode key"""
     if not mode_key:
         return mode_key
+    # First try exact match (case-sensitive) for proper casing like "NethPot"
+    if mode_key in GAMEMODE_DISPLAY_NAMES:
+        return GAMEMODE_DISPLAY_NAMES[mode_key]
+    # Then try lowercase lookup
     return GAMEMODE_DISPLAY_NAMES.get(mode_key.lower().strip(), mode_key)
 
 
@@ -1651,7 +1655,7 @@ class TicketButton(discord.ui.Button):
             description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="Játékmód", value=self.mode_key, inline=True)
+        embed.add_field(name="Játékmód", value=get_gamemode_display_name(self.mode_key), inline=True)
         embed.add_field(name="Játékos", value=member.mention, inline=True)
 
         await channel.send(content=ping_text, embed=embed, view=CloseTicketView(owner_id=member.id, mode_key=self.mode_key))
