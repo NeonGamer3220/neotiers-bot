@@ -259,6 +259,8 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN") or os.geten
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "0"))
 TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "0"))
+# Additional role IDs that can use staff commands
+EXTRA_STAFF_ROLE_IDS = [int(os.getenv("EXTRA_STAFF_ROLE_IDS", "0"))] if os.getenv("EXTRA_STAFF_ROLE_IDS") else []
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
@@ -1032,6 +1034,10 @@ def is_staff_member(member: discord.Member) -> bool:
         return True
     if STAFF_ROLE_ID and any(r.id == STAFF_ROLE_ID for r in member.roles):
         return True
+    # Check extra staff role IDs
+    for role_id in EXTRA_STAFF_ROLE_IDS:
+        if role_id and any(r.id == role_id for r in member.roles):
+            return True
     return False
 
 
@@ -2064,7 +2070,7 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
     await interaction.response.defer(ephemeral=False)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not is_staff_member(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
