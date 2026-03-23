@@ -1129,14 +1129,23 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         return {"status": 0, "data": {"tests": []}}
 
     url = f"{WEBSITE_URL}/api/tests?username={username}&gamemode={mode}"
+    print(f"[API_GET_TESTS] Requesting: {url}")
 
-    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
-    async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
-        try:
-            data = await resp.json()
-        except Exception:
-            data = {"error": await resp.text()}
-        return {"status": resp.status, "data": data}
+    try:
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            print(f"[API_GET_TESTS] Response status: {resp.status}")
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"error": await resp.text()}
+            return {"status": resp.status, "data": data}
+    except asyncio.TimeoutError:
+        print(f"[API_GET_TESTS] Timeout fetching tests for {username}")
+        return {"status": 0, "data": {"error": "timeout"}}
+    except Exception as e:
+        print(f"[API_GET_TESTS] Error: {e}")
+        return {"status": 0, "data": {"error": str(e)}}
 
 
 async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
@@ -1769,9 +1778,11 @@ async def testresult(
 
         # Previous rank from website (best-effort)
         prev_rank = "Unranked"
+        print(f"[TESTRESULT] Getting previous rank for {username} in {mode_val}...")
         if WEBSITE_URL:
             try:
                 res = await api_get_tests(username=username, mode=mode_val)
+                print(f"[TESTRESULT] Got previous rank response: {res.get('status')}")
                 if res.get("status") == 200:
                     data = res.get("data", {})
                     # Handle single result (test) or list (tests)
@@ -2831,11 +2842,23 @@ async def link(interaction: discord.Interaction, code: str = None):
             )
             return
     
-    # If code IS provided - this is handled via Minecraft /link command API call now
-    # This branch is kept for backward compatibility but will show a message to use in-game
+    # If code IS provided and valid - show success!
+    if code_valid:
+        linked_name = get_linked_minecraft_name(interaction.user.id)
+        embed = discord.Embed(
+            title="✅ Fiók összekapcsolva!",
+            description=f"**Minecraft:** `{linked_name}`\n"
+                       f"**Discord:** {interaction.user.mention}\n\n"
+                       f"A fiókok sikeresen össze lettek kapcsolva!",
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
+    # Code was provided but is invalid
     await interaction.followup.send(
-        "❌ A kódot a Minecraftban kell használnod!\n"
-        "Írd be a Minecraft chatbe: `/link <kód>`",
+        "❌ Érvénytelen kód!\n"
+        f"Használd `/link` parancsot új kód generálásához.",
         ephemeral=True
     )
 
