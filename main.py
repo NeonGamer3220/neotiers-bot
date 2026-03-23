@@ -1760,6 +1760,9 @@ async def testresult(
     gamemode: app_commands.Choice[str],
     rank: app_commands.Choice[str],
 ):
+    import uuid
+    execution_id = str(uuid.uuid4())[:8]
+    print(f"[TESTRESULT {execution_id}] Command started for {username} by {interaction.user.id}")
     await interaction.response.defer(ephemeral=True)
 
     try:
@@ -1778,11 +1781,11 @@ async def testresult(
 
         # Previous rank from website (best-effort)
         prev_rank = "Unranked"
-        print(f"[TESTRESULT] Getting previous rank for {username} in {mode_val}...")
+        print(f"[TESTRESULT {execution_id}] Getting previous rank for {username} in {mode_val}...")
         if WEBSITE_URL:
             try:
                 res = await api_get_tests(username=username, mode=mode_val)
-                print(f"[TESTRESULT] Got previous rank response: {res.get('status')}")
+                print(f"[TESTRESULT {execution_id}] Got previous rank response: {res.get('status')}")
                 if res.get("status") == 200:
                     data = res.get("data", {})
                     # Handle single result (test) or list (tests)
@@ -1823,18 +1826,18 @@ async def testresult(
         if tier_channel_id:
             tier_channel = interaction.guild.get_channel(tier_channel_id)
             if tier_channel:
-                print(f"DEBUG: /testresult sending to channel {tier_channel.name}...")
+                print(f"[TESTRESULT {execution_id}] DEBUG: sending to channel {tier_channel.name}...")
                 await tier_channel.send(embed=embed)
-                print(f"DEBUG: /testresult sent to results channel: {tier_channel.name}")
+                print(f"[TESTRESULT {execution_id}] DEBUG: sent to results channel: {tier_channel.name}")
                 await interaction.followup.send(
                     f"✅ Eredmény mentve!\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
                     f"{'+' if diff>=0 else ''}{diff} pont",
                     ephemeral=True
                 )
-                print(f"DEBUG: /testresult followup sent, returning...")
+                print(f"[TESTRESULT {execution_id}] DEBUG: followup sent, returning...")
                 return
             else:
-                print(f"DEBUG: /testresult could not find results channel with ID: {tier_channel_id}")
+                print(f"[TESTRESULT {execution_id}] DEBUG: could not find results channel with ID: {tier_channel_id}")
         
         # Try fallback by name
         tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
