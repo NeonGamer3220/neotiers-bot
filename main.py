@@ -1823,8 +1823,15 @@ async def testresult(
         if tier_channel_id:
             tier_channel = interaction.guild.get_channel(tier_channel_id)
             if tier_channel:
+                print(f"DEBUG: /testresult sending to channel {tier_channel.name}...")
                 await tier_channel.send(embed=embed)
-                print(f"DEBUG: /testresult also sent to results channel: {tier_channel.name}")
+                print(f"DEBUG: /testresult sent to results channel: {tier_channel.name}")
+                await interaction.followup.send(
+                    f"✅ Eredmény mentve!\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
+                    f"{'+' if diff>=0 else ''}{diff} pont",
+                    ephemeral=True
+                )
+                print(f"DEBUG: /testresult followup sent, returning...")
                 return
             else:
                 print(f"DEBUG: /testresult could not find results channel with ID: {tier_channel_id}")
