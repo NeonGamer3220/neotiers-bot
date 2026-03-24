@@ -1857,6 +1857,37 @@ async def testresult(
         embed.add_field(name="Elért rang:", value=rank_val, inline=False)
 
         # Only send to the results channel (eredmenyek), not the command channel
+        # ALWAYS save to website first (UPsert)
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva, nem mentem webre.", ephemeral=True)
+            return
+
+        # Normalize mode to proper display name before saving
+        mode_to_save = get_gamemode_display_name(mode_val)
+        save = await api_post_test(username=username, mode=mode_to_save, rank=rank_val, tester=tester)
+        save_status = save.get("status")
+        save_data = save.get("data")
+        save_ok = (save_status == 200 or save_status == 201)
+        
+        print(f"[TESTRESULT {execution_id}] DEBUG: save to website status: {save_status}, ok: {save_ok}")
+
+        # Set cooldown for the tested player (ALWAYS do this after saving)
+        channel = interaction.channel
+        owner_id = None
+        if channel and channel.topic:
+            try:
+                # Parse "owner=123456789"
+                for part in channel.topic.split(" | "):
+                    if part.startswith("owner="):
+                        owner_id = int(part.split("=")[1])
+                        break
+            except Exception:
+                pass
+
+        if owner_id:
+            set_last_closed(owner_id, mode_val, time.time())
+
+        # Send to results channel if configured
         tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
         try:
             tier_channel_id = int(tier_channel_id_str)
@@ -1889,51 +1920,8 @@ async def testresult(
             await tier_channel.send(embed=embed)
             return
 
-        # SAVE TO WEBSITE (UPsert)
-        if not WEBSITE_URL:
-            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva, nem mentem webre.", ephemeral=True)
-            return
-
-        # Normalize mode to proper display name before saving
-        mode_to_save = get_gamemode_display_name(mode_val)
-        save = await api_post_test(username=username, mode=mode_to_save, rank=rank_val, tester=tester)
-        save_status = save.get("status")
-        save_data = save.get("data")
-        save_ok = (save_status == 200 or save_status == 201)
-
+        # Fallback: send response if no results channel was found
         if save_ok:
-            # Set cooldown for the tested player (username)
-            # We need the user ID for this. The bot doesn't know the Discord ID of the Minecraft player.
-            # We can store cooldown by username instead of Discord ID.
-            # BUT: we need a function to set cooldown by username.
-            # Currently get_last_closed takes user_id (discord).
-            # We should change the cooldown system to use Minecraft names if we can't map them to Discord IDs easily.
-            # OR we can assume the ticket creator is the one being tested? No, tickets are created by players requesting tests.
-            # The flow is: Player opens ticket -> Staff tests them -> Staff runs /testresult.
-            # The command is run by staff. We don't know who the player is in Discord terms (unless they are in the guild).
-            # Wait, we can try to find the member who created the ticket?
-            # The ticket channel has a topic: topic=f"NeoTiers ticket | owner={member.id} | mode={self.mode_key}"
-            # We can get the channel topic to find the owner ID!
-
-            channel = interaction.channel
-            owner_id = None
-            if channel and channel.topic:
-                try:
-                    # Parse "owner=123456789"
-                    for part in channel.topic.split(" | "):
-                        if part.startswith("owner="):
-                            owner_id = int(part.split("=")[1])
-                            break
-                except Exception:
-                    pass
-
-            if owner_id:
-                set_last_closed(owner_id, mode_val, time.time())
-            else:
-                # Fallback: if we can't find owner, maybe it's a DM or something went wrong.
-                # We can't set cooldown then.
-                pass
-
             await interaction.followup.send(
                 f"✅ Mentve + weboldal frissítve.\nElőző: **{prev_rank}** → Elért: **{rank_val}** | "
                 f"{'+' if diff>=0 else ''}{diff} pont",
