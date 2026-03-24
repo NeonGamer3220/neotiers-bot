@@ -1190,7 +1190,9 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
     
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
     
-    # First, check for and delete any duplicates with different case
+    # First, check for and delete any duplicates for this mode
+    # Use proper display name for checking
+    mode_for_api = get_gamemode_display_name(mode)
     try:
         # Get all tests for this user
         check_url = f"{WEBSITE_URL}/api/tests?username={username}"
@@ -1198,24 +1200,24 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             if resp.status == 200:
                 data = await resp.json()
                 tests = data.get("data", {}).get("tests", [])
-                # Find duplicates with different case for this mode
-                normalized_mode = mode.lower()
+                # Find duplicates for this mode (case-insensitive)
+                normalized_mode = mode_for_api.lower()
                 for test in tests:
                     test_mode = str(test.get("gamemode", "")).lower()
-                    if test_mode == normalized_mode and str(test.get("gamemode", "")) != mode:
-                        # Found duplicate with different casing - delete it
+                    if test_mode == normalized_mode:
+                        # Found existing entry - will be updated by upsert
                         test_id = test.get("id")
-                        if test_id:
-                            delete_url = f"{WEBSITE_URL}/api/tests/{test_id}"
-                            async with http_session.delete(delete_url, headers=_auth_headers(), timeout=timeout) as del_resp:
-                                print(f"Deleted duplicate entry: {test.get('gamemode')} for {username}")
+                        print(f"Found existing entry for {username}/{test_mode}: id={test_id}, rank={test.get('rank')}")
     except Exception as e:
-        print(f"Error cleaning duplicates: {e}")
+        print(f"Error checking duplicates: {e}")
     
     url = f"{WEBSITE_URL}/api/tests"
+    # Use proper display name for mode (not lowercase)
+    mode_for_api = get_gamemode_display_name(mode)
+    
     payload = {
         "username": username,
-        "mode": mode.lower(),  # Normalize to lowercase for consistent upsert
+        "mode": mode_for_api,  # Use proper casing like "Sword", "NethPot", etc.
         "rank": rank,
         "testerId": str(tester.id),
         "testerName": tester.display_name,
