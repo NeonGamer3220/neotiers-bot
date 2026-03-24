@@ -1222,12 +1222,15 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
         "upsert": True,
         "ts": int(time.time()),
     }
+    print(f"[API_POST_TEST] Sending: username={username}, mode={mode.lower()}, rank={rank}, upsert=True")
 
     async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
         try:
             data = await resp.json()
+            print(f"[API_POST_TEST] Save response: status={resp.status}, data={data}")
         except Exception:
             data = {"error": await resp.text()}
+            print(f"[API_POST_TEST] Save error: {data}")
         return {"status": resp.status, "data": data}
 
 
