@@ -2584,8 +2584,10 @@ async def removetierlist(interaction: discord.Interaction, name: str):
             tests = exact_match_tests
             actual_username = tests[0].get("username", "")
 
-            # Show info about the player
+            # Show info about the player (limit to 1500 chars to avoid embed limits)
             modes_info = "\n".join([f"• **{t.get('gamemode', '?')}**: {t.get('rank', '?')} ({t.get('points', 0)}pt)" for t in tests])
+            if len(modes_info) > 1500:
+                modes_info = modes_info[:1500] + "\n... (több is van)"
 
         # Create confirmation embed
         embed = discord.Embed(
