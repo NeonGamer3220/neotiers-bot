@@ -310,10 +310,10 @@ TICKET_ROUNDS = {
     "smp": ("FT4", "FT3", "FT2"),  # FT2 if lose round
     "cart": ("FT4", "FT3", "FT2"),  # FT2 if lose round
     "sword": ("FT10", "FT6", None),
-    "uhc": ("FT10", "FT6", None),
+    "uhc": ("FT6", "FT3", None),
     "pot": ("FT10", "FT6", None),
-    "creeper": ("FT10", "FT6", "FT3"),  # FT3 if lose round
-    "shieldlessuhc": ("FT10", "FT6", None),
+    "creeper": ("FT6", "FT4", "FT3"),  # FT3 if lose round
+    "shieldlessuhc": ("FT6", "FT4", None),
     "axe": ("FT20", "FT10", None),
     "spearmace": ("FT6", "FT3", None),
     "spearelytra": ("FT6", "FT3", None),
