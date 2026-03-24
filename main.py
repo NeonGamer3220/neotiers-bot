@@ -2491,10 +2491,16 @@ class ConfirmRemoveView(discord.ui.View):
                 modes = data.get("modes", "")
                 details = data.get("details", "")
                 
+                # Truncate if too long for embed
+                desc = f"**{self.username}** sikeresen törölve lett a tierlistáról.\nMód: {modes}"
+                if details:
+                    if len(desc) + len(details) > 1500:
+                        details = details[:1500 - len(desc)] + "..."
+                    desc += f"\n{details}"
+                
                 embed = discord.Embed(
                     title="✅ Játékos eltávolítva a tierlistáról",
-                    description=f"**{self.username}** sikeresen törölve lett a tierlistáról.\n"
-                               f"Mód: {modes}" + (f"\n{details}" if details else ""),
+                    description=desc,
                     color=discord.Color.green()
                 )
                 embed.set_footer(text=f"Moderátor: {self.moderator.display_name}")
