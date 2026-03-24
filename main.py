@@ -297,6 +297,42 @@ TICKET_TYPES = [
     ("SpearElytra", "spearelytra", 1469968762575912970),
 ]
 
+# Required rounds for each gamemode (FT = First to, LT = Last to)
+# Format: (default_ft, lt3_below_ft, loss_ft optional)
+# If player is below LT3, they play fewer rounds
+# If they lose a round against tester, they play even fewer rounds (for certain modes)
+TICKET_ROUNDS = {
+    "vanilla": ("FT4", "FT3", None),
+    "diasmp": ("FT4", "FT3", "FT2"),  # FT2 if lose round
+    "ogvanilla": ("FT4", "FT2", None),
+    "nethpot": ("FT4", "FT2", None),
+    "mace": ("FT4", "FT2", None),
+    "smp": ("FT4", "FT3", "FT2"),  # FT2 if lose round
+    "cart": ("FT4", "FT3", "FT2"),  # FT2 if lose round
+    "sword": ("FT10", "FT6", None),
+    "uhc": ("FT10", "FT6", None),
+    "pot": ("FT10", "FT6", None),
+    "creeper": ("FT10", "FT6", "FT3"),  # FT3 if lose round
+    "shieldlessuhc": ("FT10", "FT6", None),
+    "axe": ("FT20", "FT10", None),
+    "spearmace": ("FT6", "FT3", None),
+    "spearelytra": ("FT6", "FT3", None),
+}
+
+
+def get_ticket_rounds_display(mode_key: str) -> str:
+    """Get the display string for required rounds based on gamemode"""
+    rounds = TICKET_ROUNDS.get(mode_key.lower())
+    if not rounds:
+        return "FT4"
+    
+    default_ft, lt3_ft, loss_ft = rounds
+    
+    if loss_ft:
+        return f"{default_ft}, LT3 alatt {lt3_ft}, ha nem nyersz a teszter ellen kört akkor {loss_ft}"
+    else:
+        return f"{default_ft}, LT3 alatt {lt3_ft}"
+
 MODE_LIST = [t[0] for t in TICKET_TYPES]
 
 RANKS = [
@@ -1645,7 +1681,7 @@ class TicketButton(discord.ui.Button):
                 name=channel_name,
                 category=category if isinstance(category, discord.CategoryChannel) else None,
                 overwrites=overwrites,
-                topic=f"NeoTiers ticket | owner={member.id} | mode={self.mode_key}",
+                topic=f"NeoTiers ticket | owner={member.id} | mode={self.mode_key} | mc={linked_minecraft}",
                 reason="NeoTiers ticket created"
             )
         except discord.Forbidden:
@@ -1665,12 +1701,16 @@ class TicketButton(discord.ui.Button):
 
         ping_text = f"<@&{ping_role_id}>" if ping_role_id else ""
 
+        rounds_display = get_ticket_rounds_display(self.mode_key)
+
         embed = discord.Embed(
             title="Teszt kérés",
             description="Kattints egy alábbi gombra, hogy tudd tesztelni a gombon feltüntetett játékmódból.",
             color=discord.Color.blurple()
         )
         embed.add_field(name="Játékmód", value=get_gamemode_display_name(self.mode_key), inline=True)
+        embed.add_field(name="Minecraft név", value=f"`{linked_minecraft}`", inline=True)
+        embed.add_field(name="Körök", value=rounds_display, inline=False)
         embed.add_field(name="Játékos", value=member.mention, inline=True)
 
         await channel.send(content=ping_text, embed=embed, view=CloseTicketView(owner_id=member.id, mode_key=self.mode_key))
