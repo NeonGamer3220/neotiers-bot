@@ -264,7 +264,9 @@ EXTRA_STAFF_ROLE_IDS = [int(os.getenv("EXTRA_STAFF_ROLE_IDS", "0"))] if os.geten
 # Specific user IDs that can use staff commands (comma-separated)
 ALLOWED_USER_IDS = [int(x.strip()) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 # DEBUG: Hardcoded user ID for testing
-DEBUG_ALLOWED_USERS = [1483822408182796418]
+DEBUG_ALLOWED_USERS = []
+# DEBUG: Hardcoded role IDs for testing
+DEBUG_ALLOWED_ROLES = [1483822408182796418]
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
@@ -1073,6 +1075,11 @@ def is_staff_member(member: discord.Member) -> bool:
     # Check debug allowed users first (hardcoded for testing)
     if DEBUG_ALLOWED_USERS and member.id in DEBUG_ALLOWED_USERS:
         return True
+    # Check debug allowed roles (hardcoded for testing)
+    if DEBUG_ALLOWED_ROLES:
+        for role_id in DEBUG_ALLOWED_ROLES:
+            if any(r.id == role_id for r in member.roles):
+                return True
     # Check specific user IDs first
     if ALLOWED_USER_IDS and member.id in ALLOWED_USER_IDS:
         return True
