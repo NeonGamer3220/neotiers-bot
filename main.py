@@ -261,6 +261,8 @@ STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "0"))
 TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "0"))
 # Additional role IDs that can use staff commands
 EXTRA_STAFF_ROLE_IDS = [int(os.getenv("EXTRA_STAFF_ROLE_IDS", "0"))] if os.getenv("EXTRA_STAFF_ROLE_IDS") else []
+# Specific user IDs that can use staff commands (comma-separated)
+ALLOWED_USER_IDS = [int(x.strip()) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
@@ -1066,6 +1068,9 @@ def unban_player(username: str) -> bool:
 # PERMISSIONS
 # =========================
 def is_staff_member(member: discord.Member) -> bool:
+    # Check specific user IDs first
+    if ALLOWED_USER_IDS and member.id in ALLOWED_USER_IDS:
+        return True
     if member.guild_permissions.administrator:
         return True
     if STAFF_ROLE_ID and any(r.id == STAFF_ROLE_ID for r in member.roles):
