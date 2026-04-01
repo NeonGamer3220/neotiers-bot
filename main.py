@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List
 # =========================
 # APRIL FOOLS' DAY MODE 🎉
 # =========================
-APRIL_FOOLS_MODE = True  # Set to False to disable April Fools' effects
+APRIL_FOOLS_MODE = False  # Set to False to disable April Fools' effects
 
 APRIL_FOOLS_MESSAGES = [
     "🤡 APRILIS BOLONDOK! 🤡",
