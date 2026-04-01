@@ -67,6 +67,12 @@ def should_april_fools_glitch() -> bool:
     """Randomly decide if we should add April Fools' glitch effects"""
     return APRIL_FOOLS_MODE and random.random() < 0.15  # 15% chance
 
+def truncate_message(text: str, max_length: int = 1900) -> str:
+    """Truncate a message to fit Discord's 2000 character limit with safety margin"""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length - 3] + "..."
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -2113,8 +2119,10 @@ async def testresult(
                 ephemeral=True
             )
         else:
+            # Truncate save_data to avoid Discord's 2000 character limit
+            save_data_str = truncate_message(str(save_data), 1500)
             await interaction.followup.send(
-                f"⚠️ Mentés hiba a weboldal felé (status {save_status}) | {save_data}",
+                f"⚠️ Mentés hiba a weboldal felé (status {save_status}) | {save_data_str}",
                 ephemeral=True
             )
 
@@ -2178,8 +2186,10 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
                 ephemeral=True
             )
         else:
+            # Truncate data to avoid Discord's 2000 character limit
+            data_str = truncate_message(str(data), 1500)
             await interaction.followup.send(
-                f"⚠️ Hiba (status {status}): {data}",
+                f"⚠️ Hiba (status {status}): {data_str}",
                 ephemeral=True
             )
 
@@ -2479,8 +2489,10 @@ async def retire(interaction: discord.Interaction, name: str, gamemode: app_comm
                 
                 await interaction.followup.send(msg, ephemeral=True)
             else:
+                # Truncate retire_data to avoid Discord's 2000 character limit
+                retire_data_str = truncate_message(str(retire_data), 1500)
                 await interaction.followup.send(
-                    f"⚠️ Hiba: {retire_resp.status} - {retire_data}",
+                    f"⚠️ Hiba: {retire_resp.status} - {retire_data_str}",
                     ephemeral=True
                 )
 
@@ -2572,8 +2584,10 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
                 
                 await interaction.followup.send(msg, ephemeral=True)
             else:
+                # Truncate post_data to avoid Discord's 2000 character limit
+                post_data_str = truncate_message(str(post_data), 1500)
                 await interaction.followup.send(
-                    f"⚠️ Hiba: {post_resp.status} - {post_data}",
+                    f"⚠️ Hiba: {post_resp.status} - {post_data_str}",
                     ephemeral=True
                 )
 
@@ -2759,8 +2773,10 @@ class ConfirmRemoveView(discord.ui.View):
                 await interaction.followup.send(embed=embed)
             else:
                 error_msg = data.get("error", "Ismeretlen hiba")
+                # Truncate error_msg to avoid Discord's 2000 character limit
+                error_msg_str = truncate_message(str(error_msg), 1500)
                 await interaction.followup.send(
-                    f"❌ Hiba a törléskor: {error_msg}",
+                    f"❌ Hiba a törléskor: {error_msg_str}",
                     ephemeral=True
                 )
         except Exception as e:
