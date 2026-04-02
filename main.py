@@ -2163,6 +2163,22 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
 
         if status == 200:
             updated_count = data.get("updatedCount", 0)
+
+            # Also update linked_accounts in Supabase
+            if USE_SUPABASE_API:
+                try:
+                    success = await supabase_update(
+                        "linked_accounts",
+                        {"minecraft_name": newname},
+                        {"minecraft_name": oldname}
+                    )
+                    if success:
+                        print(f"Updated linked_accounts: {oldname} -> {newname}")
+                    else:
+                        print(f"Warning: linked_accounts update returned False for {oldname} -> {newname}")
+                except Exception as e:
+                    print(f"Error updating linked_accounts: {e}")
+
             # April Fools' funny rename message
             if APRIL_FOOLS_MODE:
                 funny_rename_messages = [
