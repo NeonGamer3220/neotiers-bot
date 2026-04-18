@@ -1268,7 +1268,7 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
 
     url = f"{WEBSITE_URL}/api/tests?username={username}&gamemode={mode}"
     print(f"[API_GET_TESTS] Requesting: {url}")
-
+    
     try:
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
         async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
@@ -1283,6 +1283,31 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         return {"status": 0, "data": {"error": "timeout"}}
     except Exception as e:
         print(f"[API_GET_TESTS] Error: {e}")
+        return {"status": 0, "data": {"error": str(e)}}
+
+
+async def api_get_all_tests() -> Dict[str, Any]:
+    """Get all tests from the website"""
+    if not WEBSITE_URL:
+        return {"status": 0, "data": {"tests": []}}
+
+    url = f"{WEBSITE_URL}/api/tests"
+    print(f"[API_GET_ALL_TESTS] Requesting: {url}")
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            print(f"[API_GET_ALL_TESTS] Response status: {resp.status}")
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"error": await resp.text()}
+            return {"status": resp.status, "data": data}
+    except asyncio.TimeoutError:
+        print(f"[API_GET_ALL_TESTS] Timeout fetching tests")
+        return {"status": 0, "data": {"error": "timeout"}}
+    except Exception as e:
+        print(f"[API_GET_ALL_TESTS] Error: {e}")
         return {"status": 0, "data": {"error": str(e)}}
 
 
@@ -2695,6 +2720,71 @@ async def pingpanel(interaction: discord.Interaction):
         )
         view = PingPanelView()
         await interaction.followup.send(embed=embed, view=view)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="tests", description="Tesztelői statisztikák")
+async def tests_command(interaction: discord.Interaction):
+    """Show how many players each tester has tested"""
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild:
+            await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("Hiba: WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        res = await api_get_all_tests()
+        if res.get("status") != 200:
+            await interaction.followup.send(f"Hiba az API híváskor: {res.get('data', {}).get('error', 'ismeretlen')}", ephemeral=True)
+            return
+
+        data = res.get("data", {})
+        all_tests = data.get("tests", [])
+
+        tester_counts: Dict[str, int] = {}
+        tester_names: Dict[str, str] = {}
+
+        for t in all_tests:
+            tester_id = str(t.get("testerId", ""))
+            tester_name = str(t.get("testerName", "Unknown"))
+            if tester_id:
+                tester_counts[tester_id] = tester_counts.get(tester_id, 0) + 1
+                tester_names[tester_id] = tester_name
+
+        if not tester_counts:
+            await interaction.followup.send("Még nincs tesztelési adat.", ephemeral=True)
+            return
+
+        sorted_testers = sorted(tester_counts.items(), key=lambda x: x[1], reverse=True)
+
+        lines = []
+        total = sum(tester_counts.values())
+        for tester_id, count in sorted_testers:
+            name = tester_names.get(tester_id, "Unknown")
+            lines.append(f"**{name}**: {count}")
+
+        embed = discord.Embed(
+            title="📊 Tesztelői statisztikák",
+            description=f"Összesen: **{total}** teszt",
+            color=discord.Color.blurple()
+        )
+
+        chunk_size = 10
+        for i in range(0, len(lines), chunk_size):
+            chunk = lines[i:i+chunk_size]
+            embed.add_field(
+                name="Tesztelők" if i == 0 else f"Tesztelők (folyt)" if chunk else "\u200b",
+                value="\n".join(chunk) if chunk else "\u200b",
+                inline=False
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     except Exception as e:
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
@@ -4189,6 +4279,7 @@ async def main():
         g = discord.Object(id=GUILD_ID)
         bot.tree.add_command(ticketpanel, guild=g)
         bot.tree.add_command(testresult, guild=g)
+        bot.tree.add_command(tests_command, guild=g)
         bot.tree.add_command(tierlistnamechange, guild=g)
         bot.tree.add_command(profile, guild=g)
         bot.tree.add_command(porog, guild=g)
@@ -4209,6 +4300,7 @@ async def main():
         # Only register as global if no GUILD_ID
         bot.tree.add_command(ticketpanel)
         bot.tree.add_command(testresult)
+        bot.tree.add_command(tests_command)
         bot.tree.add_command(tierlistnamechange)
         bot.tree.add_command(profile)
         bot.tree.add_command(porog)
