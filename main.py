@@ -2323,6 +2323,14 @@ class QueueOpenSelect(discord.ui.Select):
             await interaction.response.send_message(f"❌ Channel nem található: {channel_id}", ephemeral=True)
             return
 
+        ping_role_id = QUEUE_PING_ROLES.get(mode_key)
+        ping_mention = ""
+        if ping_role_id:
+            role = member.guild.get_role(ping_role_id)
+            if role:
+                ping_mention = role.mention
+
+        content = ping_mention if ping_mention else None
         embed = discord.Embed(
             title=f"🟢 {mode_display} Queue",
             description="A queue nyitva van! Kattints a gombokhoz alább.",
@@ -2332,7 +2340,7 @@ class QueueOpenSelect(discord.ui.Select):
         embed.set_footer(text=f"Nyitotta: {member.display_name}")
 
         view = QueueActionView(mode_key)
-        message = await channel.send(embed=embed, view=view)
+        message = await channel.send(content=content, embed=embed, view=view)
 
         QUEUE_MESSAGE_IDS[message.id] = mode_key
         await interaction.response.send_message(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
@@ -2573,7 +2581,8 @@ async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Ch
                             description="A queue be lett zárva.",
                             color=discord.Color.red()
                         )
-                        await msg.edit(embed=embed, view=None)
+                        await msg.edit(content=None, embed=embed, view=None)
+                        QUEUE_MESSAGE_IDS.pop(msg_id, None)
                     except Exception:
                         pass
 
