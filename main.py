@@ -2432,7 +2432,7 @@ async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Ch
             await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
             return
 
-mode_key = gamemode.value.lower()
+        mode_key = gamemode.value.lower()
         mode_display = get_gamemode_display_name(mode_key)
 
         # Check if queue already open
