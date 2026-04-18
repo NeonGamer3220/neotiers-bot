@@ -2133,13 +2133,31 @@ class QueueTesterView(discord.ui.View):
                 reason=f"Queue ticket for {next_player_obj.minecraft_name}"
             )
 
+            # Get player's current tier and rounds info
+            prev_rank = "Unranked"
+            rounds_display = get_ticket_rounds_display(self.gamemode)
+            if WEBSITE_URL:
+                try:
+                    res = await api_get_tests(username=next_player_obj.minecraft_name, mode=self.gamemode)
+                    if res.get("status") == 200:
+                        data = res.get("data", {})
+                        test = data.get("test")
+                        tests = data.get("tests", [])
+                        target = test or (tests[0] if tests else None)
+                        if target:
+                            prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
+                except Exception as e:
+                    print(f"Error fetching tier: {e}")
+
             embed = discord.Embed(
                 title="Teszt kérés",
-                description=f"**Játékos:** {next_player_obj.minecraft_name}\n"
-                           f"**Játékmód:** {get_gamemode_display_name(self.gamemode)}\n"
-                           f"**Discord:** <@{next_player_obj.discord_id}>",
                 color=discord.Color.blurple()
             )
+            embed.add_field(name="Játékmód", value=get_gamemode_display_name(self.gamemode), inline=True)
+            embed.add_field(name="Minecraft név", value=f"`{next_player_obj.minecraft_name}`", inline=True)
+            embed.add_field(name="Jelenlegi tier", value=prev_rank, inline=True)
+            embed.add_field(name="Körök", value=rounds_display, inline=False)
+            embed.add_field(name="Játékos", value=f"<@{next_player_obj.discord_id}>", inline=True)
             embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
 
             view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
