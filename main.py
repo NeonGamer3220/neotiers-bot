@@ -2267,6 +2267,83 @@ class ClearAllPingsButton(discord.ui.Button):
         await interaction.response.send_message("\n".join(parts), ephemeral=True)
 
 
+class QueueOpenSelect(discord.ui.Select):
+    def __init__(self):
+        options = []
+        for label, key, _rid in TICKET_TYPES:
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=key,
+                    description=f"Queue megnyitása {label}-hoz"
+                )
+            )
+        super().__init__(
+            placeholder="Válaszd ki a queue-t amit megnyit...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="queue_open_select"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        if not is_staff_member(member):
+            await interaction.response.send_message("❌ Csak tesztelők nyithatnak queue-t.", ephemeral=True)
+            return
+
+        mode_key = self.values[0]
+        mode_display = get_gamemode_display_name(mode_key)
+
+        if mode_key in ACTIVE_QUEUES:
+            await interaction.response.send_message(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
+            return
+
+        ACTIVE_QUEUES[mode_key] = {
+            "opened_by": member.id,
+            "opened_at": time.time(),
+            "players": [],
+            "called_players": []
+        }
+
+        channel_id = QUEUE_CHANNELS.get(mode_key)
+        if not channel_id:
+            await interaction.response.send_message(
+                f"❌ Nincs channel beállítva ehhez a gamemode-hoz: {mode_display}",
+                ephemeral=True
+            )
+            return
+
+        channel = member.guild.get_channel(channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(f"❌ Channel nem található: {channel_id}", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"🟢 {mode_display} Queue",
+            description="A queue nyitva van! Kattints a gombokhoz alább.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
+        embed.set_footer(text=f"Nyitotta: {member.display_name}")
+
+        view = QueueActionView(mode_key)
+        message = await channel.send(embed=embed, view=view)
+
+        QUEUE_MESSAGE_IDS[message.id] = mode_key
+        await interaction.response.send_message(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
+
+
+class QueueOpenPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(QueueOpenSelect())
+
+
 async def update_queue_message(gamemode: str):
     """Update the queue embed in its channel"""
     channel_id = QUEUE_CHANNELS.get(gamemode)
@@ -2416,72 +2493,32 @@ async def autocomplete_testresult_username(interaction: discord.Interaction, cur
         return []
 
 
-@app_commands.command(name="queuepanel", description="Megnyit egy queue-t egy adott játékmódhoz (only testers)")
-@app_commands.describe(
-    gamemode="A játékmód aminek a queue-ját megnyitod"
-)
-@app_commands.choices(
-    gamemode=_choices_from_list(MODE_LIST)
-)
-async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
-    """Open a queue for a specific gamemode"""
-    await interaction.response.defer()
+@app_commands.command(name="queuepanel", description="Queue panel üzenet kirakása (tesztelőknek)")
+async def queuepanel(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
 
     try:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
+            await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+        if interaction.channel is None:
+            await interaction.followup.send("Hiba: nincs csatorna.", ephemeral=True)
             return
 
-        mode_key = gamemode.value.lower()
-        mode_display = get_gamemode_display_name(mode_key)
-
-        # Check if queue already open
-        if mode_key in ACTIVE_QUEUES:
-            await interaction.followup.send(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
-            return
-
-        # Create queue
-        ACTIVE_QUEUES[mode_key] = {
-            "opened_by": interaction.user.id,
-            "opened_at": time.time(),
-            "players": [],
-            "called_players": []
-        }
-
-        # Get channel for this gamemode
-        channel_id = QUEUE_CHANNELS.get(mode_key)
-        if not channel_id:
-            await interaction.followup.send(
-                f"❌ Nincs channel beállítva ehhez a gamemode-hoz: {mode_display}",
-                ephemeral=True
-            )
-            return
-
-        channel = interaction.guild.get_channel(channel_id)
-        if not channel or not isinstance(channel, discord.TextChannel):
-            await interaction.followup.send(f"❌ Channel nem található: {channel_id}", ephemeral=True)
-            return
-
-        # Send queue embed
         embed = discord.Embed(
-            title=f"🟢 {mode_display} Queue",
-            description="A queue nyitva van! Kattints a gombokhoz alább.",
+            title="🔓 Queue Nyitás",
+            description="Válaszd ki a queue-t amit meg szeretnél nyitni:",
             color=discord.Color.green()
         )
-        embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
-        embed.set_footer(text=f"Nyitotta: {interaction.user.display_name}")
 
-        view = QueueActionView(mode_key)
-        message = await channel.send(embed=embed, view=view)
+        await interaction.channel.send(embed=embed, view=QueueOpenPanelView())
+        await interaction.followup.send("✅ Queue panel kirakva.", ephemeral=True)
 
-        # Track message for updates
-        QUEUE_MESSAGE_IDS[message.id] = mode_key
-
-        await interaction.followup.send(
-            f"✅ **{mode_display}** queue megnyitva a {channel.mention} csatornában.",
-            ephemeral=True
-        )
-
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Nem tudok ide írni (Missing Permissions).", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
