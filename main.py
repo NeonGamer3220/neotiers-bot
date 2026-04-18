@@ -1936,8 +1936,70 @@ class QueuePlayer:
         self.minecraft_name = minecraft_name
         self.joined_at = time.time()
 
-class QueueActionView(discord.ui.View):
-    """Join/Leave/Close/Next buttons for queue messages"""
+class QueueUserView(discord.ui.View):
+    """Join/Leave buttons for queue messages - visible to everyone"""
+    def __init__(self, gamemode: str):
+        super().__init__(timeout=None)
+        self.gamemode = gamemode
+
+    @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success, custom_id="queue_join")
+    async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue nem létezik vagy nem nyitva.", ephemeral=True)
+            return
+
+        if any(p.discord_id == member.id for p in queue["players"]):
+            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
+            return
+
+        linked_mc = get_linked_minecraft_name(member.id)
+        if not linked_mc:
+            await interaction.response.send_message(
+                "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
+                ephemeral=True
+            )
+            return
+
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message(
+            f"✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
+    async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
+            return
+
+        for i, p in enumerate(queue["players"]):
+            if p.discord_id == member.id:
+                queue["players"].pop(i)
+                await update_queue_message(self.gamemode)
+                await interaction.response.send_message(
+                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                    ephemeral=True
+                )
+                return
+
+        await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
+
+
+class QueueTesterView(discord.ui.View):
+    """Join/Leave + Next/Close buttons - visible only to testers"""
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
         self.gamemode = gamemode
@@ -2339,11 +2401,17 @@ class QueueOpenSelect(discord.ui.Select):
         embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
         embed.set_footer(text=f"Nyitotta: {member.display_name}")
 
-        view = QueueActionView(mode_key)
+        view = QueueUserView(mode_key)
         message = await channel.send(content=content, embed=embed, view=view)
 
         QUEUE_MESSAGE_IDS[message.id] = mode_key
-        await interaction.response.send_message(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
+
+        tester_view = QueueTesterView(mode_key)
+        await interaction.response.send_message(
+            f"✅ **{mode_display}** queue megnyitva!",
+            view=tester_view,
+            ephemeral=True
+        )
 
 
 class QueueOpenPanelView(discord.ui.View):
@@ -2405,7 +2473,7 @@ async def update_queue_message(gamemode: str):
     opener = channel.guild.get_member(queue["opened_by"])
     embed.set_footer(text=f"Nyitotta: {opener.display_name if opener else 'Unknown'}")
 
-    view = QueueActionView(gamemode)
+    view = QueueUserView(gamemode)
     try:
         await message.edit(embed=embed, view=view)
     except Exception as e:
