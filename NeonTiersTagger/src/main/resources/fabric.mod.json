@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "neontiers-tagger",
+  "version": "${version}",
+  "name": "NeonTiersTagger",
+  "description": "Displays player ranks from the NeoTiers tierlist above player heads in-game",
+  "authors": [
+    "NeoTiers Team"
+  ],
+  "contact": {
+    "homepage": "https://neontiers.vercel.app",
+    "sources": "https://github.com/neontiers/neontiers-tagger"
+  },
+  "license": "MIT",
+  "icon": "assets/neontiers-tagger/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.neontiers.tagger.NeonTiersTagger"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "fabric-api": "*",
+    "minecraft": "~1.20.0"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}

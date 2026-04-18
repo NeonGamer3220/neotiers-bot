@@ -1881,8 +1881,424 @@ class TicketButton(discord.ui.Button):
 
 
 # =========================
-# COMMANDS
+# QUEUE SYSTEM
 # =========================
+
+# Channel mappings for each gamemode queue
+QUEUE_CHANNELS = {
+    "sword": 1495038486120632410,
+    "axe": 1495038602751774730,
+    "mace": 1495038625719783586,
+    "uhc": 1495038706103484487,
+    "pot": 1495038741465792553,
+    "nethpot": 1495038766769897482,
+    "smp": 1495038799800176660,
+    "vanilla": 1495038839591534834,
+    "creeper": 1495038857597681818,
+    "cart": 1495038915453779982,
+    "diasmp": 1495038938640027760,
+    "spearelytra": 1495038976988545206,
+    "spearmace": 1495038999876600008,
+    "shieldlessuhc": 1495039115119296572,
+    "ogvanilla": 1495039145330872341,
+}
+
+# Ping role IDs for each gamemode
+QUEUE_PING_ROLES = {
+    "sword": 1495043729017278525,
+    "axe": 1495043913583558758,
+    "mace": 1495043981959237752,
+    "uhc": 1495044042612805754,
+    "pot": 1495044102730022942,
+    "nethpot": 1495044163194847322,
+    "smp": 1495044237551472893,
+    "vanilla": 1495044315272052929,
+    "creeper": 1495044383425171506,
+    "cart": 1495044436403556443,
+    "diasmp": 1495044514992095333,
+    "shieldlessuhc": 1495044593211670711,
+    "ogvanilla": 1495044664502386698,
+    "spearelytra": 1495044732680667247,
+    "spearmace": 1495044798472781944,
+}
+
+# Category where ticket channels will be created
+TICKET_CREATE_CATEGORY_ID = 1495038336744689674
+
+# In-memory queue storage
+ACTIVE_QUEUES: Dict[str, Dict[str, Any]] = {}
+QUEUE_MESSAGE_IDS: Dict[int, str] = {}
+
+class QueuePlayer:
+    """Represents a player in a queue"""
+    def __init__(self, discord_id: int, minecraft_name: str):
+        self.discord_id = discord_id
+        self.minecraft_name = minecraft_name
+        self.joined_at = time.time()
+
+class QueueActionView(discord.ui.View):
+    """Join/Leave/Close/Next buttons for queue messages"""
+    def __init__(self, gamemode: str):
+        super().__init__(timeout=None)
+        self.gamemode = gamemode
+
+    @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success, custom_id="queue_join")
+    async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue nem létezik vagy nem nyitva.", ephemeral=True)
+            return
+
+        if any(p.discord_id == member.id for p in queue["players"]):
+            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
+            return
+
+        linked_mc = get_linked_minecraft_name(member.id)
+        if not linked_mc:
+            await interaction.response.send_message(
+                "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
+                ephemeral=True
+            )
+            return
+
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message(
+            f"✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
+    async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
+            return
+
+        for i, p in enumerate(queue["players"]):
+            if p.discord_id == member.id:
+                queue["players"].pop(i)
+                await update_queue_message(self.gamemode)
+                await interaction.response.send_message(
+                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                    ephemeral=True
+                )
+                return
+
+        await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
+
+    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary, custom_id="queue_close")
+    async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue már lezárva.", ephemeral=True)
+            return
+
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
+            return
+
+        view = ConfirmCloseQueueView(self.gamemode)
+        await interaction.response.send_message(
+            f"Biztosan be szeretnéd zárni a **{get_gamemode_display_name(self.gamemode)}** queue-t?",
+            view=view,
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary, custom_id="queue_next")
+    async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue or not queue["players"]:
+            await interaction.response.send_message("❌ Nincs több játékos a queue-ban.", ephemeral=True)
+            return
+
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő hívhatja a következő játékost.", ephemeral=True)
+            return
+
+        # Get next player (FIFO)
+        next_player_obj = queue["players"].pop(0)
+        queue["called_players"].append(next_player_obj.discord_id)
+        await update_queue_message(self.gamemode)
+
+        # Create ticket channel
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("❌ Hiba: ticket kategória nem található.", ephemeral=True)
+            return
+
+        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}".lower().replace(" ", "-")[:50]
+        try:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True
+                ),
+            }
+            if STAFF_ROLE_ID:
+                staff_role = guild.get_role(STAFF_ROLE_ID)
+                if staff_role:
+                    overwrites[staff_role] = discord.PermissionOverwrite(
+                        view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
+                    )
+
+            channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                overwrites=overwrites,
+                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
+                reason=f"Queue ticket for {next_player_obj.minecraft_name}"
+            )
+
+            embed = discord.Embed(
+                title="Teszt kérés",
+                description=f"**Játékos:** {next_player_obj.minecraft_name}\n"
+                           f"**Játékmód:** {get_gamemode_display_name(self.gamemode)}\n"
+                           f"**Discord:** <@{next_player_obj.discord_id}>",
+                color=discord.Color.blurple()
+            )
+            embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
+
+            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+            await channel.send(embed=embed, view=view)
+
+            await interaction.response.send_message(
+                f"✅ Ticket létrehozva: {channel.mention} | Játékos: {next_player_obj.minecraft_name}",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Hiba a channel létrehozása során: {e}", ephemeral=True)
+
+
+class ConfirmCloseQueueView(discord.ui.View):
+    def __init__(self, gamemode: str):
+        super().__init__(timeout=30)
+        self.gamemode = gamemode
+
+    @discord.ui.button(label="Igen, zárja be", style=discord.ButtonStyle.danger, custom_id="queue_close_confirm")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue már nem létezik.", ephemeral=True)
+            return
+
+        if queue["opened_by"] != member.id and not is_staff_member(member):
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
+            return
+
+        del ACTIVE_QUEUES[self.gamemode]
+        await interaction.response.send_message(
+            f"✅ **{get_gamemode_display_name(self.gamemode)}** queue bezárva.",
+            ephemeral=True
+        )
+
+        # Try to update the message
+        try:
+            msg_id = None
+            for mid, gm in list(QUEUE_MESSAGE_IDS.items()):
+                if gm == self.gamemode:
+                    msg_id = mid
+                    break
+            if msg_id:
+                channel_id = QUEUE_CHANNELS.get(self.gamemode)
+                if channel_id:
+                    channel = bot.get_channel(channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(msg_id)
+                        embed = discord.Embed(
+                            title=f"🔴 {get_gamemode_display_name(self.gamemode)} Queue",
+                            description="A queue zárva van.",
+                            color=discord.Color.red()
+                        )
+                        await msg.edit(embed=embed, view=None)
+                        del QUEUE_MESSAGE_IDS[msg_id]
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Mégsem", style=discord.ButtonStyle.secondary, custom_id="queue_close_cancel")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("❌ Mégse.", ephemeral=True)
+
+
+class PingRoleSelect(discord.ui.Select):
+    def __init__(self, selected_gamemodes: List[str] = None):
+        self.selected_gamemodes = selected_gamemodes or []
+        options = []
+        for label, key, _rid in TICKET_TYPES:
+            default = key in self.selected_gamemodes
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=key,
+                    description=f"Ping értesítések ehhez a {label} queue-hoz",
+                    default=default
+                )
+            )
+        super().__init__(
+            placeholder="Válaszd ki a queue-okat amikor pingelni szeretnél...",
+            min_values=1,
+            max_values=len(TICKET_TYPES),
+            options=options,
+            custom_id="ping_queue_select"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        guild = member.guild
+        selected_gms = set(self.values)
+
+        # All gamemodes with ping roles
+        all_ping_gms = set(QUEUE_PING_ROLES.keys())
+
+        # Compute differences: for each gamemode, decide to add or remove role
+        added = []
+        removed = []
+        errors = []
+
+        for gm in all_ping_gms:
+            role_id = QUEUE_PING_ROLES[gm]
+            role = guild.get_role(role_id)
+            if not role:
+                continue
+            has_role = any(r.id == role_id for r in member.roles)
+            should_have = gm in selected_gms
+            if should_have and not has_role:
+                try:
+                    await member.add_roles(role, reason="Ping preference via /pingpanel")
+                    added.append(role.name)
+                except Exception as e:
+                    errors.append(f"Nem sikerült hozzáadni {role.name}: {e}")
+            elif not should_have and has_role:
+                try:
+                    await member.remove_roles(role, reason="Ping preference via /pingpanel")
+                    removed.append(role.name)
+                except Exception as e:
+                    errors.append(f"Nem sikerült eltávolítani {role.name}: {e}")
+
+        parts = []
+        if added:
+            parts.append(f"✅ Hozzáadva: {', '.join(added)}")
+        if removed:
+            parts.append(f"❌ Eltávolítva: {', '.join(removed)}")
+        if not added and not removed:
+            parts.append("Nincs változtatás.")
+        if errors:
+            parts.append("\nHibák:\n" + "\n".join(errors))
+
+        await interaction.response.send_message("\n".join(parts), ephemeral=True)
+
+
+class PingPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(PingRoleSelect())
+
+
+async def update_queue_message(gamemode: str):
+    """Update the queue embed in its channel"""
+    channel_id = QUEUE_CHANNELS.get(gamemode)
+    if not channel_id:
+        return
+
+    channel = bot.get_channel(channel_id)
+    if not channel or not isinstance(channel, discord.TextChannel):
+        return
+
+    msg_id = None
+    for mid, gm in QUEUE_MESSAGE_IDS.items():
+        if gm == gamemode:
+            msg_id = mid
+            break
+    if not msg_id:
+        return
+
+    try:
+        message = await channel.fetch_message(msg_id)
+    except Exception:
+        return
+
+    queue = ACTIVE_QUEUES.get(gamemode)
+    if not queue:
+        embed = discord.Embed(
+            title=f"🔴 {get_gamemode_display_name(gamemode)} Queue",
+            description="A queue zárva van.",
+            color=discord.Color.red()
+        )
+        try:
+            await message.edit(embed=embed, view=None)
+        except Exception:
+            pass
+        return
+
+    player_lines = []
+    for player in queue["players"]:
+        member = channel.guild.get_member(player.discord_id)
+        name = member.display_name if member else player.minecraft_name
+        player_lines.append(f"{name} ({player.minecraft_name})")
+
+    player_text = "\n".join(player_lines) if player_lines else "Még senki nincs a queue-ban."
+
+    embed = discord.Embed(
+        title=f"🟢 {get_gamemode_display_name(gamemode)} Queue",
+        description=f"Játékosok a queue-ban: **{len(queue['players'])}**",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Játékosok", value=player_text, inline=False)
+    opener = channel.guild.get_member(queue["opened_by"])
+    embed.set_footer(text=f"Nyitotta: {opener.display_name if opener else 'Unknown'}")
+
+    view = QueueActionView(gamemode)
+    try:
+        await message.edit(embed=embed, view=view)
+    except Exception as e:
+        print(f"Queue update error [{gamemode}]: {e}")
+
+
+async def queue_maintenance_task():
+    """Periodically update all queue messages"""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(30)
+            for gm in list(ACTIVE_QUEUES.keys()):
+                try:
+                    await update_queue_message(gm)
+                except Exception as e:
+                    print(f"[QueueMaintenance] {gm}: {e}")
+        except Exception as e:
+            print(f"[QueueMaintenance] Fatal: {e}")
+
 def _choices_from_list(values):
     return [app_commands.Choice(name=v, value=v) for v in values]
 
@@ -1959,6 +2375,121 @@ async def autocomplete_testresult_username(interaction: discord.Interaction, cur
             return [app_commands.Choice(name=u, value=u) for u in matches[:25]]
     except Exception:
         return []
+
+
+@app_commands.command(name="queuepanel", description="Megnyit egy queue-t egy adott játékmódhoz (only testers)")
+@app_commands.describe(
+    gamemode="A játékmód aminek a queue-ját megnyitod"
+)
+@app_commands.choices(
+    gamemode=_choices_from_list(MODE_LIST)
+)
+async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
+    """Open a queue for a specific gamemode (tester only)"""
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
+            return
+
+        # Only staff can open queues
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("❌ Csak tesztelők nyithatnak queue-t.", ephemeral=True)
+            return
+
+        mode_key = gamemode.value.lower()
+        mode_display = get_gamemode_display_name(mode_key)
+
+        # Check if user has tester role for this specific gamemode (unless admin)
+        if not interaction.user.guild_permissions.administrator:
+            role_id = QUEUE_PING_ROLES.get(mode_key)
+            if role_id:
+                role = interaction.guild.get_role(role_id)
+                if not role or role not in interaction.user.roles:
+                    await interaction.followup.send(
+                        f"❌ Csak a {mode_display} tesztelői nyithatnak queue-t ehhez a gamemode-hoz.",
+                        ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.followup.send(
+                    f"❌ Nincs beállítva tesztelői szerep ehhez a gamemode-hoz: {mode_display}",
+                    ephemeral=True
+                )
+                return
+
+        # Check if queue already open
+        if mode_key in ACTIVE_QUEUES:
+            await interaction.followup.send(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
+            return
+
+        # Create queue
+        ACTIVE_QUEUES[mode_key] = {
+            "opened_by": interaction.user.id,
+            "opened_at": time.time(),
+            "players": [],
+            "called_players": []
+        }
+
+        # Get channel for this gamemode
+        channel_id = QUEUE_CHANNELS.get(mode_key)
+        if not channel_id:
+            await interaction.followup.send(
+                f"❌ Nincs channel beállítva ehhez a gamemode-hoz: {mode_display}",
+                ephemeral=True
+            )
+            return
+
+        channel = interaction.guild.get_channel(channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            await interaction.followup.send(f"❌ Channel nem található: {channel_id}", ephemeral=True)
+            return
+
+        # Send queue embed
+        embed = discord.Embed(
+            title=f"🟢 {mode_display} Queue",
+            description="A queue nyitva van! Kattints a gombokhoz alább.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
+        embed.set_footer(text=f"Nyitotta: {interaction.user.display_name}")
+
+        view = QueueActionView(mode_key)
+        message = await channel.send(embed=embed, view=view)
+
+        # Track message for updates
+        QUEUE_MESSAGE_IDS[message.id] = mode_key
+
+        await interaction.followup.send(
+            f"✅ **{mode_display}** queue megnyitva a {channel.mention} csatornában.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
+async def pingpanel(interaction: discord.Interaction):
+    """Set up ping notifications for queues"""
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🔔 Ping Beállítások",
+            description="Válaszd ki a queue-okat amikor értesíteni szeretnél:",
+            color=discord.Color.blue()
+        )
+        view = PingPanelView()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
 @app_commands.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
@@ -3442,6 +3973,9 @@ async def main():
     # health server
     asyncio.create_task(start_health_server())
 
+    # queue maintenance task
+    asyncio.create_task(queue_maintenance_task())
+
     # register commands - Use guild commands only (faster sync, avoids duplicates)
     if GUILD_ID:
         g = discord.Object(id=GUILD_ID)
@@ -3457,6 +3991,8 @@ async def main():
         bot.tree.add_command(removetierlist, guild=g)
         bot.tree.add_command(cooldown, guild=g)
         bot.tree.add_command(bulkimport, guild=g)
+        bot.tree.add_command(queuepanel, guild=g)
+        bot.tree.add_command(pingpanel, guild=g)
         bot.tree.add_command(link, guild=g)
         bot.tree.add_command(unlink, guild=g)
         bot.tree.add_command(mylink, guild=g)
@@ -3474,6 +4010,8 @@ async def main():
         bot.tree.add_command(removetierlist)
         bot.tree.add_command(cooldown)
         bot.tree.add_command(bulkimport)
+        bot.tree.add_command(queuepanel)
+        bot.tree.add_command(pingpanel)
         bot.tree.add_command(link)
         bot.tree.add_command(unlink)
         bot.tree.add_command(mylink)
