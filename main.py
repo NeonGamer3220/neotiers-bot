@@ -1652,8 +1652,8 @@ class TierSelect(discord.ui.Select):
         skin_url = f"https://minotar.net/helm/{linked_minecraft}/128.png"
         
         # April Fools' effects
-        display_mc = add_glitch(linked_minecraft) if should_april_fools_glitch() else linked_minecraft
-        display_mode = add_glitch(mode_label) if should_april_fools_glitch() else mode_label
+        display_mc = linked_minecraft
+        display_mode = mode_label
         display_prev_rank = get_funny_rank(prev_rank) if APRIL_FOOLS_MODE else prev_rank
         display_selected_tier = get_funny_rank(selected_tier) if APRIL_FOOLS_MODE else selected_tier
         
@@ -1905,7 +1905,7 @@ class TicketButton(discord.ui.Button):
         # April Fools' funny mode display
         display_mode = get_gamemode_display_name(self.mode_key)
         if APRIL_FOOLS_MODE:
-            display_mode = add_glitch(display_mode) if should_april_fools_glitch() else display_mode
+            display_mode = display_mode
         
         embed.add_field(name="Játékmód", value=display_mode, inline=True)
         embed.add_field(name="Minecraft név", value=f"`{linked_minecraft}`", inline=True)
@@ -2937,8 +2937,8 @@ async def testresult(
         skin_url = f"https://minotar.net/helm/{username}/128.png"
         
         # April Fools' effects
-        display_username = add_glitch(username) if should_april_fools_glitch() else username
-        display_mode = add_glitch(mode_val) if should_april_fools_glitch() else mode_val
+        display_username = username
+        display_mode = mode_val
         display_prev_rank = get_funny_rank(prev_rank) if APRIL_FOOLS_MODE else prev_rank
         display_rank_val = get_funny_rank(rank_val) if APRIL_FOOLS_MODE else rank_val
         
@@ -3192,7 +3192,7 @@ async def profile(interaction: discord.Interaction, name: str):
                         break
 
             # Build embed
-            display_name = add_glitch(tests[0].get('username', name)) if should_april_fools_glitch() else tests[0].get('username', name)
+            display_name = tests[0].get('username', name)
             
             embed = discord.Embed(
                 title=f"{display_name} profilja",
@@ -3968,7 +3968,7 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
         cooldowns = data.get("cooldowns", {}).get(str(target_member.id), {})
         
         # April Fools' funny title
-        display_name = add_glitch(target_member.display_name) if should_april_fools_glitch() else target_member.display_name
+        display_name = target_member.display_name
         
         embed = discord.Embed(
             title=f"⏳ Cooldown info - {display_name}",
