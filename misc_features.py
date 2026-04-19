@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 
 from shared_utils import *
-from core_testing import lazy_command
+from core_testing import lazy_command, _choices_from_list
 
 
 @lazy_command(name="profile", description="Megnézed egy játékos tierjeit a tierlistáról.")
