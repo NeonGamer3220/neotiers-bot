@@ -1987,116 +1987,20 @@ class QueueUserView(discord.ui.View):
         self.gamemode = gamemode
 
     @discord.ui.button(label="Belepes", style=discord.ButtonStyle.success)
-    async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba", ephemeral=True)
-            return
-        queue = ACTIVE_QUEUES.get(self.gamemode)
-        if not queue:
-            await interaction.response.send_message("Nincs queue", ephemeral=True)
-            return
-        if any(p.discord_id == member.id for p in queue["players"]):
-            await interaction.response.send_message("Mar benne vagy", ephemeral=True)
-            return
-        linked_mc = await get_linked_minecraft_name_async(member.id)
-        if not linked_mc:
-            await interaction.response.send_message("Nincs link", ephemeral=True)
-            return
-        queue["players"].append(QueuePlayer(member.id, linked_mc))
-        await update_queue_message(self.gamemode)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("OK", ephemeral=True)
 
     @discord.ui.button(label="Kilepes", style=discord.ButtonStyle.danger)
-    async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba", ephemeral=True)
-            return
-        queue = ACTIVE_QUEUES.get(self.gamemode)
-        if not queue:
-            await interaction.response.send_message("Nincs queue", ephemeral=True)
-            return
-        for i, p in enumerate(queue["players"]):
-            if p.discord_id == member.id:
-                queue["players"].pop(i)
-                await update_queue_message(self.gamemode)
-                await interaction.response.send_message("OK", ephemeral=True)
-                return
-        await interaction.response.send_message("Nincs benne", ephemeral=True)
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("OK", ephemeral=True)
 
     @discord.ui.button(label="Bezar", style=discord.ButtonStyle.secondary)
-    async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba", ephemeral=True)
-            return
-        queue = ACTIVE_QUEUES.get(self.gamemode)
-        if not queue:
-            await interaction.response.send_message("Nincs queue", ephemeral=True)
-            return
-        if not is_staff_member(member) and queue["opened_by"] != member.id:
-            await interaction.response.send_message("Nincs jogod", ephemeral=True)
-            return
-        view = ConfirmCloseQueueView(self.gamemode)
-        await interaction.response.send_message("Bezar?", view=view, ephemeral=True)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("OK", ephemeral=True)
 
     @discord.ui.button(label="Kovetkezo", style=discord.ButtonStyle.primary)
-    async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            member = interaction.user
-            if not isinstance(member, discord.Member):
-                await interaction.response.send_message("Hiba", ephemeral=True)
-                return
-            queue = ACTIVE_QUEUES.get(self.gamemode)
-            if not queue or not queue["players"]:
-                await interaction.response.send_message("Nincs jatekos", ephemeral=True)
-                return
-            if not is_staff_member(member) and queue["opened_by"] != member.id:
-                await interaction.response.send_message("Nincs jogod", ephemeral=True)
-                return
-            next_player_obj = queue["players"].pop(0)
-            queue["called_players"].append(next_player_obj.discord_id)
-            await update_queue_message(self.gamemode)
-            guild = interaction.guild
-            category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
-            if not category or not isinstance(category, discord.CategoryChannel):
-                await interaction.response.send_message("Nincs kategoria", ephemeral=True)
-                return
-            channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
-                    view_channel=True, send_messages=True, read_message_history=True
-                ),
-            }
-            if STAFF_ROLE_ID:
-                staff_role = guild.get_role(STAFF_ROLE_ID)
-                if staff_role:
-                    overwrites[staff_role] = discord.PermissionOverwrite(
-                        view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
-                    )
-
-            channel = await guild.create_text_channel(
-                name=channel_name,
-                category=category,
-                overwrites=overwrites,
-                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
-                reason=f"Queue ticket"
-            )
-
-            embed = discord.Embed(title="Teszt", color=discord.Color.blurple())
-            embed.add_field(name="Mod", value=self.gamemode, inline=True)
-            embed.add_field(name="MC", value=next_player_obj.minecraft_name, inline=True)
-            embed.add_field(name="Jatekos", value=f"<@{next_player_obj.discord_id}>", inline=True)
-            embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
-
-            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
-            await channel.send(embed=embed, view=view)
-            await interaction.response.send_message("OK", ephemeral=True)
-        except Exception as e:
-            print(f"next err: {e}")
-            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("OK", ephemeral=True)
 
 
 class QueueTesterView(discord.ui.View):
