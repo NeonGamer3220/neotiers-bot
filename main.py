@@ -2111,6 +2111,115 @@ class QueueUserView(discord.ui.View):
 
         await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
 
+    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary, custom_id="queue_close")
+    async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ A queue már lezárva.", ephemeral=True)
+            return
+
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
+            return
+
+        view = ConfirmCloseQueueView(self.gamemode)
+        await interaction.response.send_message(
+            f"Biztosan be szeretnéd zárni a **{get_gamemode_display_name(self.gamemode)}** queue-t?",
+            view=view,
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary, custom_id="queue_next")
+    async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if not member:
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue or not queue["players"]:
+            await interaction.response.send_message("❌ Nincs több játékos a queue-ban.", ephemeral=True)
+            return
+
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő hívhatja a következő játékost.", ephemeral=True)
+            return
+
+        next_player_obj = queue["players"].pop(0)
+        queue["called_players"].append(next_player_obj.discord_id)
+        await update_queue_message(self.gamemode)
+
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("❌ Hiba: ticket kategória nem található.", ephemeral=True)
+            return
+
+        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}".lower().replace(" ", "-")[:50]
+        try:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True
+                ),
+            }
+            if STAFF_ROLE_ID:
+                staff_role = guild.get_role(STAFF_ROLE_ID)
+                if staff_role:
+                    overwrites[staff_role] = discord.PermissionOverwrite(
+                        view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
+                    )
+
+            channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                overwrites=overwrites,
+                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
+                reason=f"Queue ticket for {next_player_obj.minecraft_name}"
+            )
+
+            prev_rank = "Unranked"
+            rounds_display = get_ticket_rounds_display(self.gamemode)
+            if WEBSITE_URL:
+                try:
+                    res = await api_get_tests(username=next_player_obj.minecraft_name, mode=self.gamemode)
+                    if res.get("status") == 200:
+                        data = res.get("data", {})
+                        test = data.get("test")
+                        tests = data.get("tests", [])
+                        target = test or (tests[0] if tests else None)
+                        if target:
+                            prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
+                except Exception as e:
+                    print(f"Error fetching tier: {e}")
+
+            embed = discord.Embed(
+                title="Teszt kérés",
+                color=discord.Color.blurple()
+            )
+            embed.add_field(name="Játékmód", value=get_gamemode_display_name(self.gamemode), inline=True)
+            embed.add_field(name="Minecraft név", value=f"`{next_player_obj.minecraft_name}`", inline=True)
+            embed.add_field(name="Jelenlegi tier", value=prev_rank, inline=True)
+            embed.add_field(name="Körök", value=rounds_display, inline=False)
+            embed.add_field(name="Játékos", value=f"<@{next_player_obj.discord_id}>", inline=True)
+            embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
+
+            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+            await channel.send(embed=embed, view=view)
+
+            await interaction.response.send_message(
+                f"✅ Ticket létrehozva: {channel.mention} | Játékos: {next_player_obj.minecraft_name}",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
+
 
 class QueueTesterView(discord.ui.View):
     """Join/Leave + Next/Close buttons - visible only to testers"""
