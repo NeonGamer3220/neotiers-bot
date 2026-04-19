@@ -2042,99 +2042,73 @@ class QueueUserView(discord.ui.View):
         super().__init__(timeout=None)
         self.gamemode = gamemode
 
-    @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success, custom_id="queue_join")
+    @discord.ui.button(label="Belepes", style=discord.ButtonStyle.success)
     async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            member = interaction.user
-            if not isinstance(member, discord.Member):
-                await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
-                return
-            queue = ACTIVE_QUEUES.get(self.gamemode)
-            if not queue:
-                await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
-                return
-            if any(p.discord_id == member.id for p in queue["players"]):
-                await interaction.response.send_message("Már benne vagy!", ephemeral=True)
-                return
-            cd = cooldown_left(member.id, self.gamemode)
-            if cd > 0:
-                await interaction.response.send_message(f"Várj: {format_cooldown(cd)}", ephemeral=True)
-                return
-            linked_mc = await get_linked_minecraft_name_async(member.id)
-            if not linked_mc:
-                await interaction.response.send_message("Nincs linked MC! `/link`", ephemeral=True)
-                return
-            queue["players"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(self.gamemode)
-            await interaction.response.send_message("✅ Beléptél!", ephemeral=True)
-        except Exception as e:
-            print(f"join err: {e}")
-            try:
-                await interaction.response.send_message(f"Hiba: {e}", ephemeral=True)
-            except:
-                pass
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("Nincs queue", ephemeral=True)
+            return
+        if any(p.discord_id == member.id for p in queue["players"]):
+            await interaction.response.send_message("Mar benne vagy", ephemeral=True)
+            return
+        linked_mc = await get_linked_minecraft_name_async(member.id)
+        if not linked_mc:
+            await interaction.response.send_message("Nincs link", ephemeral=True)
+            return
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message("OK", ephemeral=True)
 
-    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
+    @discord.ui.button(label="Kilepes", style=discord.ButtonStyle.danger)
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            member = interaction.user
-            if not isinstance(member, discord.Member):
-                await interaction.response.send_message("Hiba", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("Nincs queue", ephemeral=True)
+            return
+        for i, p in enumerate(queue["players"]):
+            if p.discord_id == member.id:
+                queue["players"].pop(i)
+                await update_queue_message(self.gamemode)
+                await interaction.response.send_message("OK", ephemeral=True)
                 return
-            queue = ACTIVE_QUEUES.get(self.gamemode)
-            if not queue:
-                await interaction.response.send_message("Nincs queue.", ephemeral=True)
-                return
-            for i, p in enumerate(queue["players"]):
-                if p.discord_id == member.id:
-                    queue["players"].pop(i)
-                    await update_queue_message(self.gamemode)
-                    await interaction.response.send_message("✅ Ki", ephemeral=True)
-                    return
-            await interaction.response.send_message("Nem vagy benne.", ephemeral=True)
-        except Exception as e:
-            print(f"leave err: {e}")
-            try:
-                await interaction.response.send_message(f"Hiba: {e}", ephemeral=True)
-            except:
-                pass
+        await interaction.response.send_message("Nincs benne", ephemeral=True)
 
-    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary, custom_id="queue_close")
+    @discord.ui.button(label="Bezar", style=discord.ButtonStyle.secondary)
     async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            member = interaction.user
-            if not isinstance(member, discord.Member):
-                await interaction.response.send_message("Hiba", ephemeral=True)
-                return
-            queue = ACTIVE_QUEUES.get(self.gamemode)
-            if not queue:
-                await interaction.response.send_message("Nincs queue.", ephemeral=True)
-                return
-            if not is_staff_member(member) and queue["opened_by"] != member.id:
-                await interaction.response.send_message("Nincs jogod.", ephemeral=True)
-                return
-            view = ConfirmCloseQueueView(self.gamemode)
-            await interaction.response.send_message(f"Bezár?", view=view, ephemeral=True)
-        except Exception as e:
-            print(f"close btn err: {e}")
-            try:
-                await interaction.response.send_message(f"Hiba: {e}", ephemeral=True)
-            except:
-                pass
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("Nincs queue", ephemeral=True)
+            return
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("Nincs jogod", ephemeral=True)
+            return
+        view = ConfirmCloseQueueView(self.gamemode)
+        await interaction.response.send_message("Bezar?", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary, custom_id="queue_next")
+    @discord.ui.button(label="Kovetkezo", style=discord.ButtonStyle.primary)
     async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            member = interaction.user
-            if not isinstance(member, discord.Member):
-                await interaction.response.send_message("Hiba", ephemeral=True)
-                return
-            queue = ACTIVE_QUEUES.get(self.gamemode)
-            if not queue or not queue["players"]:
-                await interaction.response.send_message("Nincs játékos.", ephemeral=True)
-                return
-            if not is_staff_member(member) and queue["opened_by"] != member.id:
-                await interaction.response.send_message("Nincs jogod.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue or not queue["players"]:
+            await interaction.response.send_message("Nincs jatekos", ephemeral=True)
+            return
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("Nincs jogod", ephemeral=True)
                 return
             next_player_obj = queue["players"].pop(0)
             queue["called_players"].append(next_player_obj.discord_id)
