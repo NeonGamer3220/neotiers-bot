@@ -569,6 +569,17 @@ async def get_player_tier_for_mode(discord_id: int, mode_key: str) -> str:
     return "Unranked"
 
 
+def quick_check_player_tier(discord_id: int, mode_key: str) -> bool:
+    """Quick check if player is likely LT3+ for this mode (no async)"""
+    try:
+        data = _load_data()
+        # Check cooldowns - if no cooldown entry, likely hasn't been tested
+        last = data.get("cooldowns", {}).get(str(discord_id), {}).get(mode_key, 0)
+        return last > 0
+    except Exception:
+        return False
+
+
 def is_lt3_or_above(rank: str) -> bool:
     """Check if rank is LT3 or above"""
     rank_points = POINTS.get(rank, 0)
@@ -1813,16 +1824,7 @@ class TicketButton(discord.ui.Button):
             )
             return
 
-        # Check if player is LT3 or above for this gamemode
-        player_tier = await get_player_tier_for_mode(member.id, self.mode_key)
-        if not is_lt3_or_above(player_tier):
-            await interaction.response.send_message(
-                f"❌ **{player_tier}** vagy. Csak **LT3** vagy felette használhatod a `/queuepanel`-t!",
-                ephemeral=True
-            )
-            return
-        
-        # April Fools' 5% chance to open ticket
+# April Fools' 5% chance to open ticket
         if APRIL_FOOLS_MODE:
             if random.random() > 0.05:  # 95% chance to fail
                 funny_fail_messages = [
