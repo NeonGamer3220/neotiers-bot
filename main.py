@@ -1996,7 +1996,16 @@ class QueueUserView(discord.ui.View):
 
     @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary)
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("✅ Köszi!", ephemeral=True)
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ Nincs queue", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user) and queue["opened_by"] != interaction.user.id:
+            await interaction.response.send_message("❌ Nincs jogod", ephemeral=True)
+            return
+        del ACTIVE_QUEUES[self.gamemode]
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message("✅ Queue bezárva!", ephemeral=True)
 
     @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
