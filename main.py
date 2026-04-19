@@ -530,6 +530,57 @@ def cooldown_left(user_id: int, mode_key: str) -> int:
     return max(0, left)
 
 
+def format_cooldown(seconds: int) -> str:
+    """Format cooldown time nicely"""
+    if seconds <= 0:
+        return "0"
+    days = seconds // (24 * 60 * 60)
+    hours = (seconds % (24 * 60 * 60)) // (60 * 60)
+    minutes = (seconds % (60 * 60)) // 60
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}ó")
+    if minutes > 0:
+        parts.append(f"{minutes}p")
+    return " ".join(parts) if parts else "<1p"
+
+
+async def get_player_tier_for_mode(discord_id: int, mode_key: str) -> str:
+    """Get player's tier for a specific gamemode - returns 'Unranked' if none"""
+    linked_mc = await get_linked_minecraft_name_async(discord_id)
+    if not linked_mc or not WEBSITE_URL:
+        return "Unranked"
+    
+    try:
+        mode_param = normalize_gamemode(mode_key)
+        res = await api_get_tests(username=linked_mc, mode=mode_param)
+        if res.get("status") == 200:
+            data = res.get("data", {})
+            test = data.get("test")
+            tests = data.get("tests", [])
+            target = test or (tests[0] if tests else None)
+            if target:
+                return str(target.get("rank", "Unranked")) or "Unranked"
+    except Exception as e:
+        print(f"Error getting tier: {e}")
+    return "Unranked"
+
+
+def is_lt3_or_above(rank: str) -> bool:
+    """Check if rank is LT3 or above"""
+    rank_points = POINTS.get(rank, 0)
+    return rank_points >= 6  # LT3 = 6 points
+
+
+def is_under_lt3(rank: str) -> bool:
+    """Check if rank is under LT3"""
+    rank_points = POINTS.get(rank, 0)
+    return rank_points < 6
+
+
 # =========================
 # LINK SYSTEM (Discord -> Minecraft Account Linking) - Database Version
 # =========================
@@ -1708,6 +1759,8 @@ class TierSelect(discord.ui.Select):
                 save = await api_post_test(username=linked_minecraft, mode=mode_to_save, rank=selected_tier, tester=tester)
                 save_ok = (save.get("status") == 200 or save.get("status") == 201)
                 if save_ok:
+                    # Set cooldown after successful save
+                    set_last_closed(owner_id, mode_key, time.time())
                     await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** és mentve a weboldalra!", ephemeral=True)
                 else:
                     await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** (weboldal mentés sikertelen)", ephemeral=True)
@@ -1715,6 +1768,8 @@ class TierSelect(discord.ui.Select):
                 await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}** (weboldal hiba: {e})", ephemeral=True)
         else:
             await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
+            # Set cooldown even without website save
+            set_last_closed(owner_id, mode_key, time.time())
 
 
 class TicketPanelView(discord.ui.View):
@@ -1744,6 +1799,25 @@ class TicketButton(discord.ui.Button):
                 "❌ **Nincs összekapcsolva a Minecraft fiókod!**\n\n"
                 "Használd a `/link` parancsot a Discordban, majd `/link <kód>` a Minecraftban, "
                 "hogy összekapcsold a fiókodat. Csak azok hozhatnak létre ticketet, akik összekapcsolták a fiókjukat!",
+                ephemeral=True
+            )
+            return
+
+        # Check cooldown
+        cd = cooldown_left(member.id, self.mode_key)
+        if cd > 0:
+            cd_display = format_cooldown(cd)
+            await interaction.response.send_message(
+                f"❌ Még nem tesztelhetsz! Várj: **{cd_display}**",
+                ephemeral=True
+            )
+            return
+
+        # Check if player is LT3 or above for this gamemode
+        player_tier = await get_player_tier_for_mode(member.id, self.mode_key)
+        if not is_lt3_or_above(player_tier):
+            await interaction.response.send_message(
+                f"❌ **{player_tier}** vagy. Csak **LT3** vagy felette használhatod a `/queuepanel`-t!",
                 ephemeral=True
             )
             return
@@ -1983,7 +2057,25 @@ class QueueUserView(discord.ui.View):
             await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
             return
 
-        linked_mc = get_linked_minecraft_name(member.id)
+        # Check cooldown
+        cd = cooldown_left(member.id, self.gamemode)
+        if cd > 0:
+            await interaction.response.send_message(
+                f"❌ Még nem tesztelhetsz! Várj: **{format_cooldown(cd)}**",
+                ephemeral=True
+            )
+            return
+
+        # Check if already LT3+ (can't join queue if already LT3 or above)
+        player_tier = await get_player_tier_for_mode(member.id, self.gamemode)
+        if is_lt3_or_above(player_tier):
+            await interaction.response.send_message(
+                f"❌ Már **{player_tier}** vagy! Használd a `/ticketpanel`-t a teszthez.",
+                ephemeral=True
+            )
+            return
+
+        linked_mc = await get_linked_minecraft_name_async(member.id)
         if not linked_mc:
             await interaction.response.send_message(
                 "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
@@ -2045,7 +2137,25 @@ class QueueTesterView(discord.ui.View):
             await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
             return
 
-        linked_mc = get_linked_minecraft_name(member.id)
+        # Check cooldown
+        cd = cooldown_left(member.id, self.gamemode)
+        if cd > 0:
+            await interaction.response.send_message(
+                f"❌ Még nem tesztelhetsz! Várj: **{format_cooldown(cd)}**",
+                ephemeral=True
+            )
+            return
+
+        # Check if already LT3+ (can't join queue if already LT3 or above)
+        player_tier = await get_player_tier_for_mode(member.id, self.gamemode)
+        if is_lt3_or_above(player_tier):
+            await interaction.response.send_message(
+                f"❌ Már **{player_tier}** vagy! Használd a `/ticketpanel`-t a teszthez.",
+                ephemeral=True
+            )
+            return
+
+        linked_mc = await get_linked_minecraft_name_async(member.id)
         if not linked_mc:
             await interaction.response.send_message(
                 "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
