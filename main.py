@@ -2399,37 +2399,37 @@ class PingRoleSelect(discord.ui.Select):
             removed = []
             errors = []
 
-        for gm in all_ping_gms:
-            role_id = QUEUE_PING_ROLES[gm]
-            role = guild.get_role(role_id)
-            if not role:
-                continue
-            has_role = any(r.id == role_id for r in member.roles)
-            should_have = gm in selected_gms
-            if should_have and not has_role:
-                try:
-                    await member.add_roles(role, reason="Ping preference via /pingpanel")
-                    added.append(role.name)
-                except Exception as e:
-                    errors.append(f"Nem sikerült hozzáadni {role.name}: {e}")
-            elif not should_have and has_role:
-                try:
-                    await member.remove_roles(role, reason="Ping preference via /pingpanel")
-                    removed.append(role.name)
-                except Exception as e:
-                    errors.append(f"Nem sikerült eltávolítani {role.name}: {e}")
+            for gm in all_ping_gms:
+                role_id = QUEUE_PING_ROLES[gm]
+                role = guild.get_role(role_id)
+                if not role:
+                    continue
+                has_role = any(r.id == role_id for r in member.roles)
+                should_have = gm in selected_gms
+                if should_have and not has_role:
+                    try:
+                        await member.add_roles(role, reason="Ping preference via /pingpanel")
+                        added.append(role.name)
+                    except Exception as e:
+                        errors.append(f"Nem sikerült hozzáadni {role.name}: {e}")
+                elif not should_have and has_role:
+                    try:
+                        await member.remove_roles(role, reason="Ping preference via /pingpanel")
+                        removed.append(role.name)
+                    except Exception as e:
+                        errors.append(f"Nem sikerült eltávolítani {role.name}: {e}")
 
-        parts = []
-        if added:
-            parts.append(f"✅ Hozzáadva: {', '.join(added)}")
-        if removed:
-            parts.append(f"❌ Eltávolítva: {', '.join(removed)}")
-        if not added and not removed:
-            parts.append("Nincs változtatás.")
-        if errors:
-            parts.append("\nHibák:\n" + "\n".join(errors))
+            parts = []
+            if added:
+                parts.append(f"✅ Hozzáadva: {', '.join(added)}")
+            if removed:
+                parts.append(f"❌ Eltávolítva: {', '.join(removed)}")
+            if not added and not removed:
+                parts.append("Nincs változtatás.")
+            if errors:
+                parts.append("\nHibák:\n" + "\n".join(errors))
 
-        await interaction.response.send_message("\n".join(parts), ephemeral=True)
+            await interaction.response.send_message("\n".join(parts), ephemeral=True)
         except Exception as e:
             print(f"Ping role select error: {e}")
             await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
