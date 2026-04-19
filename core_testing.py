@@ -952,7 +952,7 @@ class ConfirmCloseQueueView(discord.ui.View):
             if msg_id:
                 channel_id = QUEUE_CHANNELS.get(self.gamemode)
                 if channel_id:
-                    channel = bot.get_channel(channel_id)
+                    channel = _bot.get_channel(channel_id)
                     if channel:
                         msg = await channel.fetch_message(msg_id)
                         embed = discord.Embed(
@@ -1180,7 +1180,7 @@ async def update_queue_message(gamemode: str):
     if not channel_id:
         return
 
-    channel = bot.get_channel(channel_id)
+    channel = _bot.get_channel(channel_id)
     if not channel or not isinstance(channel, discord.TextChannel):
         return
 
@@ -1238,8 +1238,8 @@ async def update_queue_message(gamemode: str):
 
 async def queue_maintenance_task():
     """Periodically update all queue messages"""
-    await bot.wait_until_ready()
-    while not bot.is_closed():
+    await _bot.wait_until_ready()
+    while not _bot.is_closed():
         try:
             await asyncio.sleep(30)
             for gm in list(ACTIVE_QUEUES.keys()):
