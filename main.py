@@ -2649,7 +2649,6 @@ class QueueOpenSelect(discord.ui.Select):
         except Exception as e:
             print(f"open queue err: {e}")
             await interaction.response.send_message(f"Hiba: {e}", ephemeral=True)
-            )
 
 
 class QueueOpenPanelView(discord.ui.View):
