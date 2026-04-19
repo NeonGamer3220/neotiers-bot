@@ -1999,6 +1999,11 @@ class QueueUserView(discord.ui.View):
         if any(p.discord_id == member.id for p in queue["players"]):
             await interaction.response.send_message("⚠️ Már benne vagy!", ephemeral=True)
             return
+        if is_staff_member(member):
+            queue["players"].append(QueuePlayer(member.id, "TESZTER"))
+            await update_queue_message(self.gamemode)
+            await interaction.response.send_message("✅ Beléptél teszterként!", ephemeral=True)
+            return
         linked_mc = await get_linked_minecraft_name_async(member.id)
         if not linked_mc:
             await interaction.response.send_message("❌ Nincs linked MC! `/link`", ephemeral=True)
@@ -2569,6 +2574,8 @@ async def update_queue_message(gamemode: str):
     for player in queue["players"]:
         member = channel.guild.get_member(player.discord_id)
         name = member.display_name if member else player.minecraft_name
+        if is_staff_member(member):
+            name = f"⭐ {name}"
         player_lines.append(f"{name} ({player.minecraft_name})")
 
     player_text = "\n".join(player_lines) if player_lines else "Még senki nincs a queue-ban."
