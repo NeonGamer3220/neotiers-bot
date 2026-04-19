@@ -1,12 +1,7 @@
 import os
 import asyncio
 
-# Import our refactored modules
-from shared_utils import *
-from core_testing import *
-from misc_features import *
-
-# Import discord for bot setup
+# Import discord for bot setup FIRST (before other modules that need bot)
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -20,6 +15,11 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 http_session = None
+
+# NOW import our refactored modules (they use 'bot' defined above)
+from shared_utils import *
+from core_testing import *
+from misc_features import *
 
 # =========================
 # HEALTH SERVER (Railway)
