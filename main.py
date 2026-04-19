@@ -1988,19 +1988,54 @@ class QueueUserView(discord.ui.View):
 
     @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("✅ Köszi!", ephemeral=True)
-
-    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger)
-    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("✅ Köszi!", ephemeral=True)
-
-    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary)
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Hiba: nem tag", ephemeral=True)
+            return
         queue = ACTIVE_QUEUES.get(self.gamemode)
         if not queue:
             await interaction.response.send_message("❌ Nincs queue", ephemeral=True)
             return
-        if not is_staff_member(interaction.user) and queue["opened_by"] != interaction.user.id:
+        if any(p.discord_id == member.id for p in queue["players"]):
+            await interaction.response.send_message("⚠️ Már benne vagy!", ephemeral=True)
+            return
+        linked_mc = await get_linked_minecraft_name_async(member.id)
+        if not linked_mc:
+            await interaction.response.send_message("❌ Nincs linked MC! `/link`", ephemeral=True)
+            return
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message("✅ Beléptél a queue-ba!", ephemeral=True)
+
+    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger)
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Hiba: nem tag", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ Nincs queue", ephemeral=True)
+            return
+        for i, p in enumerate(queue["players"]):
+            if p.discord_id == member.id:
+                queue["players"].pop(i)
+                await update_queue_message(self.gamemode)
+                await interaction.response.send_message("✅ Kiléptél a queue-ból!", ephemeral=True)
+                return
+        await interaction.response.send_message("⚠️ Nem vagy a queue-ban", ephemeral=True)
+
+    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Hiba: nem tag", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message("❌ Nincs queue", ephemeral=True)
+            return
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
             await interaction.response.send_message("❌ Nincs jogod", ephemeral=True)
             return
         del ACTIVE_QUEUES[self.gamemode]
@@ -2009,7 +2044,40 @@ class QueueUserView(discord.ui.View):
 
     @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("✅ Köszi!", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Hiba: nem tag", ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue or not queue["players"]:
+            await interaction.response.send_message("❌ Nincs játékos a queue-ban", ephemeral=True)
+            return
+        if not is_staff_member(member) and queue["opened_by"] != member.id:
+            await interaction.response.send_message("❌ Nincs jogod", ephemeral=True)
+            return
+        next_player_obj = queue["players"].pop(0)
+        queue["called_players"].append(next_player_obj.discord_id)
+        await update_queue_message(self.gamemode)
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("❌ Nincs kategória", ephemeral=True)
+            return
+        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        }
+        if STAFF_ROLE_ID:
+            overwrites[guild.get_role(STAFF_ROLE_ID)] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
+        channel = await guild.create_text_channel(name=channel_name, category=category, overwrites=overwrites, topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode}")
+        embed = discord.Embed(title="Teszt kérés", color=discord.Color.blurple())
+        embed.add_field(name="Játékos", value=f"<@{next_player_obj.discord_id}>", inline=True)
+        embed.add_field(name="Minecraft", value=next_player_obj.minecraft_name, inline=True)
+        embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
+        view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+        await channel.send(embed=embed, view=view)
+        await interaction.response.send_message(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=True)
 
 
 class QueueTesterView(discord.ui.View):
