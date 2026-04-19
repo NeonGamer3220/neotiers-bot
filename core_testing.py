@@ -47,7 +47,11 @@ class CloseTicketView(discord.ui.View):
                 pass
         except Exception as e:
             print(f"close ticket error: {e}")
-            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
+            # Check if we already responded to avoid "Interaction already acknowledged"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Hiba: {e}", ephemeral=True)
 
         # Get owner_id and mode_key from channel topic
         topic = channel.topic or ""
