@@ -149,8 +149,32 @@ class GameModeSelect(discord.ui.Select):
         self._default_value = mode_key
 
     async def callback(self, interaction: discord.Interaction):
-        # Update the tier select's placeholder
-        await interaction.response.defer()
+        try:
+            # All code that might fail goes INSIDE the try block
+            selected_tier = self.values[0]
+            view = self.view
+            owner_id = view.owner_id
+            linked_minecraft = view.linked_minecraft
+            tester = view.tester
+            mode_key = view.mode_key
+            mode_label = view.mode_label
+
+            # Get the owner member
+            owner_member = interaction.guild.get_member(owner_id)
+            if not owner_member:
+                await interaction.response.send_message("Hiba: nem találom a Discord felhasználót.", ephemeral=True)
+                return
+
+            # ... [The rest of your logic for calculating points and sending embeds] ...
+
+            # Example success message
+            await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
+
+        except Exception as e:
+            # THIS IS THE MISSING BLOCK causing the SyntaxError
+            print(f"tier select error: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
 
 class TierSelect(discord.ui.Select):
