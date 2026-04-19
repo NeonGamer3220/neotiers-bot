@@ -11,6 +11,40 @@ from typing import Dict, Any, Optional, List
 # APRIL FOOLS' DAY MODE (Disabled)
 # =========================
 
+APRIL_FOOLS_MODE = False  # Enable April Fools' mode by setting to True
+
+def should_april_fools_glitch() -> bool:
+    """Determine if April Fools' glitch should occur (5% chance when mode is enabled)"""
+    return APRIL_FOOLS_MODE and random.random() < 0.05
+
+def get_april_fools_message() -> str:
+    """Get a random April Fools' message"""
+    messages = [
+        "🎪 A cirkusz ma nyitva! 🎪",
+        "🤡 A bohóc elárulta a titkát! 🤡",
+        "🎭 A színházban ma előadás van! 🎭",
+        "🃏 A kártyák újra keverve! 🃏",
+    ]
+    return random.choice(messages)
+
+def get_funny_rank(rank: str) -> str:
+    """Get a funny alternative rank name for April Fools' mode"""
+    funny_ranks = {
+        "Unranked": "🎪 Cirkuszban",
+        "LT5": "🤡 Bohóc",
+        "HT5": "🎭 Színész",
+        "LT4": "🃏 Kártyás",
+        "HT4": "🎪 Cirkuszos",
+        "LT3": "🤡 Főbohóc",
+        "HT3": "🎭 Főszínész",
+        "LT2": "🃏 Főkártya",
+        "HT2": "🎪 Cirkuszkapitány",
+        "LT1": "🤡 Cirkuszdirigens",
+        "HT1": "🎭 Színházigazgató",
+    }
+    return funny_ranks.get(rank, rank)
+
+
 def truncate_message(text: str, max_length: int = 1900) -> str:
     """Truncate a message to fit Discord's 2000 character limit with safety margin"""
     if len(text) <= max_length:
