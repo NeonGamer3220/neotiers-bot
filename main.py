@@ -2382,21 +2382,22 @@ class PingRoleSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
-            return
+        try:
+            member = interaction.user
+            if not isinstance(member, discord.Member):
+                await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+                return
 
-        guild = member.guild
-        selected_gms = set(self.values)
+            guild = member.guild
+            selected_gms = set(self.values)
 
-        # All gamemodes with ping roles
-        all_ping_gms = set(QUEUE_PING_ROLES.keys())
+            # All gamemodes with ping roles
+            all_ping_gms = set(QUEUE_PING_ROLES.keys())
 
-        # Compute differences: for each gamemode, decide to add or remove role
-        added = []
-        removed = []
-        errors = []
+            # Compute differences: for each gamemode, decide to add or remove role
+            added = []
+            removed = []
+            errors = []
 
         for gm in all_ping_gms:
             role_id = QUEUE_PING_ROLES[gm]
@@ -2429,6 +2430,9 @@ class PingRoleSelect(discord.ui.Select):
             parts.append("\nHibák:\n" + "\n".join(errors))
 
         await interaction.response.send_message("\n".join(parts), ephemeral=True)
+        except Exception as e:
+            print(f"Ping role select error: {e}")
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
 
 class PingPanelView(discord.ui.View):
@@ -2566,10 +2570,8 @@ class QueueOpenSelect(discord.ui.Select):
 
             QUEUE_MESSAGE_IDS[message.id] = mode_key
 
-            tester_view = QueueTesterView(mode_key)
             await interaction.response.send_message(
-                f"✅ **{mode_display}** queue megnyitva!",
-                view=tester_view,
+                f"✅ **{mode_display}** queue megnyitva! Használd a /closequeue parancsot a bezáráshoz.",
                 ephemeral=True
             )
         except Exception as e:
