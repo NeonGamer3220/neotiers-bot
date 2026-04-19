@@ -22,8 +22,8 @@ from core_testing import *
 from misc_features import *
 
 # Register bot reference in modules that need it
-from core_testing import set_bot as core_set_bot
-core_set_bot(bot)
+from core_testing import set_bot
+set_bot(bot)
 
 # =========================
 # HEALTH SERVER (Railway)

@@ -10,6 +10,15 @@ from shared_utils import *
 # Bot reference - will be set from main.py
 bot = None
 
+# Lazy bot decorator that works with None at import time
+class LazyBot:
+    def __getattr__(self, name):
+        if bot is None:
+            raise RuntimeError("bot not set - call set_bot() first")
+        return getattr(bot, name)
+
+_lazy_bot = LazyBot()
+
 def set_bot(bot_instance):
     global bot
     bot = bot_instance
@@ -1240,8 +1249,8 @@ def _choices_from_list(values):
     return [app_commands.Choice(name=v, value=v) for v in values]
 
 
-@bot.tree.command(name="ticketpanel", description="Ticket panel üzenet kirakása.")
-async def ticketpanel(interaction: discord.Interaction):
+# Define commands as functions (not decorated yet)
+async def _ticketpanel_cmd(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     try:
@@ -1314,7 +1323,7 @@ async def autocomplete_testresult_username(interaction: discord.Interaction, cur
         return []
 
 
-@bot.tree.command(name="queuepanel", description="Queue panel üzenet kirakása (tesztelőknek)")
+@_lazy_bot.tree.command(name="queuepanel", description="Queue panel üzenet kirakása (tesztelőknek)")
 async def queuepanel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -1344,7 +1353,7 @@ async def queuepanel(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="closequeue", description="Queue bezárása")
+@_lazy_bot.tree.command(name="closequeue", description="Queue bezárása")
 @app_commands.describe(
     gamemode="A queue amit be szeretnél zárni"
 )
@@ -1405,7 +1414,7 @@ async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Ch
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
+@_lazy_bot.tree.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
 async def pingpanel(interaction: discord.Interaction):
     """Set up ping notifications for queues"""
     await interaction.response.defer()
@@ -1427,7 +1436,7 @@ async def pingpanel(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="tests", description="Tesztelői statisztikák")
+@_lazy_bot.tree.command(name="tests", description="Tesztelői statisztikák")
 async def tests_command(interaction: discord.Interaction):
     """Show how many players each tester has tested"""
     await interaction.response.defer(ephemeral=True)
@@ -1496,7 +1505,7 @@ async def tests_command(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
+@_lazy_bot.tree.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
 @app_commands.describe(
     username="Minecraft név (ebből lesz a skin a weboldalon)",
     tester="Tesztelő (Discord user)",
@@ -1671,7 +1680,7 @@ async def testresult(
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="cooldown", description="Megnézed a cooldownidat egy játékmódban, vagy egy másik játékos cooldownját (staff).")
+@_lazy_bot.tree.command(name="cooldown", description="Megnézed a cooldownidat egy játékmódban, vagy egy másik játékos cooldownját (staff).")
 @app_commands.describe(
     user="Játékos (ha üres, a sajátodat nézed meg)"
 )
