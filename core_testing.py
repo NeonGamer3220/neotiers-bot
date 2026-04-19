@@ -177,68 +177,84 @@ class GameModeSelect(discord.ui.Select):
                 await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
 
-class TierSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label=rank, value=rank)
-            for rank in RANKS if rank != "Unranked"
-        ]
-        super().__init__(placeholder="Elért rang...", options=options, custom_id="tier_select")
-
-    async def callback(self, interaction: discord.Interaction):
+async def callback(self, interaction: discord.Interaction):
         try:
+            # Everything below this must be indented 8 spaces (2 levels)
             selected_tier = self.values[0]
             view = self.view
-        owner_id = view.owner_id
-        linked_minecraft = view.linked_minecraft
-        tester = view.tester
-        mode_key = view.mode_key
-        mode_label = view.mode_label
+            owner_id = view.owner_id
+            linked_minecraft = view.linked_minecraft
+            tester = view.tester
+            mode_key = view.mode_key
+            mode_label = view.mode_label
 
-        # Get the owner member
-        owner_member = interaction.guild.get_member(owner_id)
-        if not owner_member:
-            await interaction.response.send_message("Hiba: nem találom a Discord felhasználót.", ephemeral=True)
-            return
+            owner_member = interaction.guild.get_member(owner_id)
+            if not owner_member:
+                await interaction.response.send_message("Hiba: nem találom a Discord felhasználót.", ephemeral=True)
+                return
 
-        # Get previous rank from website
-        prev_rank = "Unranked"
-        prev_points = 0
-        if WEBSITE_URL:
+            # --- PREVIOUS RANK LOGIC ---
+            prev_rank = "Unranked"
+            prev_points = 0
+            if WEBSITE_URL:
+                try:
+                    mode_param = normalize_gamemode(mode_key)
+                    res = await api_get_tests(username=linked_minecraft, mode=mode_param)
+                    if res.get("status") == 200:
+                        data = res.get("data", {})
+                        test = data.get("test")
+                        tests = data.get("tests", [])
+                        target = test if test else (tests[0] if tests else None)
+                        if target:
+                            prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
+                            prev_points = POINTS.get(prev_rank, 0)
+                except Exception as e:
+                    print(f"Error fetching previous rank: {e}")
+
+            # --- EMBED CALCULATION ---
+            new_points = POINTS.get(selected_tier, 0)
+            diff = new_points - prev_points
+            points_str = f"+{diff}" if diff > 0 else str(diff)
+            if diff == 0: points_str = "±0"
+
+            embed = discord.Embed(title=f"{linked_minecraft} teszt eredménye 🏆", color=discord.Color.dark_grey())
+            embed.set_thumbnail(url=f"https://minotar.net/helm/{linked_minecraft}/128.png")
+            embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
+            embed.add_field(name="Játékmód:", value=mode_label, inline=False)
+            embed.add_field(name="Elért rang:", value=f"{selected_tier} ({new_points} pont)", inline=False)
+            embed.add_field(name="Pontok:", value=points_str, inline=False)
+
+            # --- SEND RESULTS ---
+            tier_channel = None
+            tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
             try:
-                # Normalize mode to match bot's TICKET_TYPES
-                mode_param = normalize_gamemode(mode_key)
-                print(f"Fetching previous rank for {linked_minecraft} in mode {mode_param}")
-                res = await api_get_tests(username=linked_minecraft, mode=mode_param)
-                print(f"API response: {res}")
-                if res.get("status") == 200:
-                    data = res.get("data", {})
-                    test = data.get("test")
-                    tests = data.get("tests", [])
+                tier_channel_id = int(tier_channel_id_str)
+                if tier_channel_id:
+                    tier_channel = interaction.guild.get_channel(tier_channel_id)
+            except:
+                pass
+            
+            if not tier_channel:
+                tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
 
-                    # Find the best (highest points) test result for this mode
-                    target = None
-                    if test:
-                        target = test
-                    elif tests:
-                        # If multiple tests, find the one with highest points for this mode
-                        best_test = None
-                        best_points = -1
-                        for t in tests:
-                            t_mode = str(t.get("gamemode", "")).lower()
-                            t_rank = str(t.get("rank", "Unranked"))
-                            t_points = POINTS.get(t_rank, 0)
-                            if t_mode == mode_param and t_points > best_points:
-                                best_points = t_points
-                                best_test = t
-                        target = best_test
+            if tier_channel:
+                await tier_channel.send(embed=embed)
 
-                    if target:
-                        prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
-                        prev_points = POINTS.get(prev_rank, 0)
-                        print(f"Found previous rank: {prev_rank} = {prev_points} points")
-            except Exception as e:
-                print(f"Error fetching previous rank: {e}")
+            # --- SAVE & COOLDOWN ---
+            if WEBSITE_URL:
+                mode_to_save = get_gamemode_display_name(mode_key)
+                await api_post_test(username=linked_minecraft, mode=mode_to_save, rank=selected_tier, tester=tester)
+            
+            set_last_closed(owner_id, mode_key, time.time())
+            await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
+
+        except Exception as e:
+            # This is the "except" block Python was looking for
+            print(f"tier select error: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Hiba: {e}", ephemeral=True)
 
         # Calculate new points
         new_points = POINTS.get(selected_tier, 0)
