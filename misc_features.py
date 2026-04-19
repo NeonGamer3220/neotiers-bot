@@ -2,9 +2,10 @@ import discord
 from discord import app_commands
 
 from shared_utils import *
+from core_testing import lazy_command
 
 
-@bot.tree.command(name="profile", description="Megnézed egy játékos tierjeit a tierlistáról.")
+@lazy_command(name="profile", description="Megnézed egy játékos tierjeit a tierlistáról.")
 @app_commands.describe(
     name="A játékos neve a tierlistán"
 )
@@ -120,7 +121,7 @@ async def profile(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="porog", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
+@lazy_command(name="porog", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
 @app_commands.describe(
     gamemode="A játékmód (pl. sword, pot, smp)",
     tier="A tier (pl. ht3, lt1)",
@@ -211,7 +212,7 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="tierlistnamechange", description="Játékos nevének megváltoztatása a tierlistán (admin csak)")
+@lazy_command(name="tierlistnamechange", description="Játékos nevének megváltoztatása a tierlistán (admin csak)")
 @app_commands.describe(
     oldname="A jelenlegi név a tierlistán",
     newname="Az új név ami megjelenik a tierlistán"
@@ -292,7 +293,7 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="retire", description="Játékos nyugdíjazása egy gamemódban (admin csak, csak Tier 2).")
+@lazy_command(name="retire", description="Játékos nyugdíjazása egy gamemódban (admin csak, csak Tier 2).")
 @app_commands.describe(
     name="A játékos neve a tierlistán",
     gamemode="A játékmód"
@@ -389,7 +390,7 @@ async def retire(interaction: discord.Interaction, name: str, gamemode: app_comm
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="unretire", description="Játékos visszahozása nyugdíjból (admin csak).")
+@lazy_command(name="unretire", description="Játékos visszahozása nyugdíjból (admin csak).")
 @app_commands.describe(
     name="A játékos neve a tierlistán",
     gamemode="A játékmód"
@@ -486,7 +487,7 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="tierlistban", description="Játékos kitiltása a tesztelésből (admin csak).")
+@lazy_command(name="tierlistban", description="Játékos kitiltása a tesztelésből (admin csak).")
 @app_commands.describe(
     name="A játékos neve a tierlistán",
     days="Kitiltás időtartama napokban (0 = örök ban)",
@@ -555,7 +556,7 @@ async def tierlistban(interaction: discord.Interaction, name: str, days: int, re
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="tierlistunban", description="Játékos visszavétele a tesztelésbe (admin csak).")
+@lazy_command(name="tierlistunban", description="Játékos visszavétele a tesztelésbe (admin csak).")
 @app_commands.describe(
     name="A játékos neve a tierlistán"
 )
@@ -685,7 +686,7 @@ class ConfirmRemoveView(discord.ui.View):
         self.stop()
 
 
-@bot.tree.command(name="removetierlist", description="Játékos eltávolítása a tierlistáról (admin csak, DANGER!)")
+@lazy_command(name="removetierlist", description="Játékos eltávolítása a tierlistáról (admin csak, DANGER!)")
 @app_commands.describe(
     name="A játékos neve a tierlistán (Minecraft név)"
 )
@@ -772,7 +773,7 @@ async def removetierlist(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="bulkimport", description="Bulk import test results from file (admin only)")
+@lazy_command(name="bulkimport", description="Bulk import test results from file (admin only)")
 @app_commands.describe(
     file="Text file with test results (one per line: username mode rank)"
 )
@@ -853,7 +854,7 @@ async def bulkimport(interaction: discord.Interaction, file: discord.Attachment)
     await interaction.followup.send(result_msg, ephemeral=True)
 
 
-@bot.tree.command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
+@lazy_command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
 @app_commands.describe(
     code="A Minecraftban kapott összekapcsolási kód (opcionális, ha még nincs kódod)"
 )
@@ -988,7 +989,7 @@ async def link(interaction: discord.Interaction, code: str = None):
     )
 
 
-@bot.tree.command(name="unlink", description="Leválasztod a Minecraft fiókodat a Discord fiókodról.")
+@lazy_command(name="unlink", description="Leválasztod a Minecraft fiókodat a Discord fiókodról.")
 async def unlink(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -1034,7 +1035,7 @@ async def unlink(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="mylink", description="Megnézed az összekapcsolt Minecraft fiókodat.")
+@lazy_command(name="mylink", description="Megnézed az összekapcsolt Minecraft fiókodat.")
 async def mylink(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
