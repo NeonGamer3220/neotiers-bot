@@ -2641,7 +2641,7 @@ async def queuepanel(interaction: discord.Interaction):
 
     except discord.Forbidden:
         await interaction.followup.send("❌ Nem tudok ide írni (Missing Permissions).", ephemeral=True)
-except Exception as e:
+    except Exception as e:
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
