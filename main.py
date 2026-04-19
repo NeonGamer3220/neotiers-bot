@@ -2089,27 +2089,31 @@ class QueueUserView(discord.ui.View):
 
     @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if not member:
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
-            return
-
-        queue = ACTIVE_QUEUES.get(self.gamemode)
-        if not queue:
-            await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
-            return
-
-        for i, p in enumerate(queue["players"]):
-            if p.discord_id == member.id:
-                queue["players"].pop(i)
-                await update_queue_message(self.gamemode)
-                await interaction.response.send_message(
-                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
-                    ephemeral=True
-                )
+        try:
+            member = interaction.user if isinstance(interaction.user, discord.Member) else None
+            if not member:
+                await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
                 return
 
-        await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
+            queue = ACTIVE_QUEUES.get(self.gamemode)
+            if not queue:
+                await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
+                return
+
+            for i, p in enumerate(queue["players"]):
+                if p.discord_id == member.id:
+                    queue["players"].pop(i)
+                    await update_queue_message(self.gamemode)
+                    await interaction.response.send_message(
+                        f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                        ephemeral=True
+                    )
+                    return
+
+            await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
+        except Exception as e:
+            print(f"Leave queue error: {e}")
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
     @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary, custom_id="queue_close")
     async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
