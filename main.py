@@ -2056,80 +2056,58 @@ class QueueUserView(discord.ui.View):
             return
         next_player_obj = queue["players"].pop(0)
         queue["called_players"].append(next_player_obj.discord_id)
-            await update_queue_message(self.gamemode)
-            guild = interaction.guild
-            category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
-            if not category or not isinstance(category, discord.CategoryChannel):
-                await interaction.response.send_message("Nincs kategória.", ephemeral=True)
-                return
-            channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
-                    view_channel=True, send_messages=True, read_message_history=True
-                ),
-            }
-            if STAFF_ROLE_ID:
-                staff_role = guild.get_role(STAFF_ROLE_ID)
-                if staff_role:
-                    overwrites[staff_role] = discord.PermissionOverwrite(
-                        view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
-                    )
+        await update_queue_message(self.gamemode)
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("Nincs kategoria", ephemeral=True)
+            return
+        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True
+            ),
+        }
+        if STAFF_ROLE_ID:
+            staff_role = guild.get_role(STAFF_ROLE_ID)
+            if staff_role:
+                overwrites[staff_role] = discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
+                )
 
-            channel = await guild.create_text_channel(
-                name=channel_name,
-                category=category,
-                overwrites=overwrites,
-                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
-                reason=f"Queue ticket for {next_player_obj.minecraft_name}"
-            )
+        channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites,
+            topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
+            reason=f"Queue ticket for {next_player_obj.minecraft_name}"
+        )
 
-            prev_rank = "Unranked"
-            rounds_display = get_ticket_rounds_display(self.gamemode)
-            if WEBSITE_URL:
-                try:
-                    res = await api_get_tests(username=next_player_obj.minecraft_name, mode=self.gamemode)
-                    if res.get("status") == 200:
-                        data = res.get("data", {})
-                        test = data.get("test")
-                        tests = data.get("tests", [])
-                        target = test or (tests[0] if tests else None)
-                        if target:
-                            prev_rank = str(target.get("rank", "Unranked")) or "Unranked"
-                except Exception as e:
-                    print(f"Error fetching tier: {e}")
+        embed = discord.Embed(title="Teszt", color=discord.Color.blurple())
+        embed.add_field(name="Mod", value=self.gamemode, inline=True)
+        embed.add_field(name="MC", value=next_player_obj.minecraft_name, inline=True)
+        embed.add_field(name="Jatekos", value=f"<@{next_player_obj.discord_id}>", inline=True)
+        embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
 
-            embed = discord.Embed(
-                title="Teszt kérés",
-                color=discord.Color.blurple()
-            )
-            embed.add_field(name="Játékmód", value=get_gamemode_display_name(self.gamemode), inline=True)
-            embed.add_field(name="Minecraft név", value=f"`{next_player_obj.minecraft_name}`", inline=True)
-            embed.add_field(name="Jelenlegi tier", value=prev_rank, inline=True)
-            embed.add_field(name="Körök", value=rounds_display, inline=False)
-            embed.add_field(name="Játékos", value=f"<@{next_player_obj.discord_id}>", inline=True)
-            embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
-
-            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
-            await channel.send(embed=embed, view=view)
-
-            await interaction.response.send_message("OK", ephemeral=True)
-        except Exception as e:
-            print(f"next err: {e}")
-            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+        view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+        await channel.send(embed=embed, view=view)
+        await interaction.response.send_message("OK", ephemeral=True)
+    except Exception as e:
+        print(f"next err: {e}")
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 class QueueTesterView(discord.ui.View):
-    """Join/Leave + Next/Close buttons - visible only to testers"""
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
         self.gamemode = gamemode
 
-    @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success, custom_id="queue_join")
+    @discord.ui.button(label="Belepes", style=discord.ButtonStyle.success)
     async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if not member:
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.response.send_message("Hiba", ephemeral=True)
             return
 
         queue = ACTIVE_QUEUES.get(self.gamemode)
