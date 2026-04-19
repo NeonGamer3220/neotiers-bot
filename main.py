@@ -2169,16 +2169,10 @@ class QueueUserView(discord.ui.View):
             view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
             await channel.send(embed=embed, view=view)
 
-            await interaction.response.send_message(
-                f"✅ Ticket: {channel.mention}",
-                ephemeral=True
-            )
+            await interaction.response.send_message("OK", ephemeral=True)
         except Exception as e:
             print(f"next err: {e}")
-            try:
-                await interaction.response.send_message(f"Hiba: {e}", ephemeral=True)
-            except:
-                pass
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 class QueueTesterView(discord.ui.View):
