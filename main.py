@@ -2487,6 +2487,8 @@ class QueueOpenSelect(discord.ui.Select):
     def __init__(self):
         options = []
         for label, key, _rid in TICKET_TYPES:
+            if key in ACTIVE_QUEUES:
+                continue
             options.append(
                 discord.SelectOption(
                     label=label,
