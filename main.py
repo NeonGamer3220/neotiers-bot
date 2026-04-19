@@ -2769,67 +2769,6 @@ async def queuepanel(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@app_commands.command(name="closequeue", description="Queue bezárása")
-@app_commands.describe(
-    gamemode="A queue amit be szeretnél zárni"
-)
-@app_commands.choices(
-    gamemode=_choices_from_list(MODE_LIST)
-)
-async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
-    """Close a queue (only owner or staff)"""
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.followup.send("Hiba.", ephemeral=True)
-            return
-
-        mode_key = gamemode.value.lower()
-        mode_display = get_gamemode_display_name(mode_key)
-
-        queue = ACTIVE_QUEUES.get(mode_key)
-        if not queue:
-            await interaction.followup.send(f"❌ A **{mode_display}** queue nincs nyitva.", ephemeral=True)
-            return
-
-        is_owner = queue["opened_by"] == interaction.user.id
-        is_staff = is_staff_member(interaction.user)
-
-        if not is_owner and not is_staff:
-            await interaction.followup.send("❌ Csak a queue nyitói vagy tesztelők zárhatják be.", ephemeral=True)
-            return
-
-        del ACTIVE_QUEUES[mode_key]
-
-        channel_id = QUEUE_CHANNELS.get(mode_key)
-        if channel_id:
-            channel = interaction.guild.get_channel(channel_id)
-            if channel and isinstance(channel, discord.TextChannel):
-                msg_id = None
-                for mid, gm in QUEUE_MESSAGE_IDS.items():
-                    if gm == mode_key:
-                        msg_id = mid
-                        break
-                if msg_id:
-                    try:
-                        msg = await channel.fetch_message(msg_id)
-                        embed = discord.Embed(
-                            title=f"🔴 {mode_display} Queue",
-                            description="A queue be lett zárva.",
-                            color=discord.Color.red()
-                        )
-                        await msg.edit(content=None, embed=embed, view=None)
-                        QUEUE_MESSAGE_IDS.pop(msg_id, None)
-                    except Exception:
-                        pass
-
-        await interaction.followup.send(f"✅ **{mode_display}** queue bezárva!", ephemeral=True)
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
-
-
 @app_commands.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
 async def pingpanel(interaction: discord.Interaction):
     """Set up ping notifications for queues"""
@@ -4422,7 +4361,6 @@ async def main():
         bot.tree.add_command(cooldown, guild=g)
         bot.tree.add_command(bulkimport, guild=g)
         bot.tree.add_command(queuepanel, guild=g)
-        bot.tree.add_command(closequeue, guild=g)
         bot.tree.add_command(pingpanel, guild=g)
         bot.tree.add_command(link, guild=g)
         bot.tree.add_command(unlink, guild=g)
@@ -4443,7 +4381,6 @@ async def main():
         bot.tree.add_command(cooldown)
         bot.tree.add_command(bulkimport)
         bot.tree.add_command(queuepanel)
-        bot.tree.add_command(closequeue)
         bot.tree.add_command(pingpanel)
         bot.tree.add_command(link)
         bot.tree.add_command(unlink)
