@@ -17,9 +17,12 @@ def set_bot(bot_instance):
     global _bot
     _bot = bot_instance
     # Register all pending commands now that we have the bot
+    print(f"Registering {len(_pending_commands)} pending commands...")
     for cmd_func, cmd_kwargs in _pending_commands:
         _bot.tree.command(**cmd_kwargs)(cmd_func)
+        print(f"  Registered: {cmd_kwargs.get('name')}")
     _pending_commands.clear()
+    print("All commands registered.")
 
 def lazy_command(**kwargs):
     def decorator(func):
