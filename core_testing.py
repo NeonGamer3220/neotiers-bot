@@ -338,9 +338,6 @@ async def callback(self, interaction: discord.Interaction):
             await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
             # Set cooldown even without website save
             set_last_closed(owner_id, mode_key, time.time())
-        except Exception as e:
-            print(f"tier select error: {e}")
-            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
 
 class TicketPanelView(discord.ui.View):
