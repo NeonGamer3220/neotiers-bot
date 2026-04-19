@@ -2043,59 +2043,60 @@ class QueueUserView(discord.ui.View):
 
     @discord.ui.button(label="Kovetkezo", style=discord.ButtonStyle.primary)
     async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba", ephemeral=True)
-            return
-        queue = ACTIVE_QUEUES.get(self.gamemode)
-        if not queue or not queue["players"]:
-            await interaction.response.send_message("Nincs jatekos", ephemeral=True)
-            return
-        if not is_staff_member(member) and queue["opened_by"] != member.id:
-            await interaction.response.send_message("Nincs jogod", ephemeral=True)
-            return
-        next_player_obj = queue["players"].pop(0)
-        queue["called_players"].append(next_player_obj.discord_id)
-        await update_queue_message(self.gamemode)
-        guild = interaction.guild
-        category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
-        if not category or not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("Nincs kategoria", ephemeral=True)
-            return
-        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True
-            ),
-        }
-        if STAFF_ROLE_ID:
-            staff_role = guild.get_role(STAFF_ROLE_ID)
-            if staff_role:
-                overwrites[staff_role] = discord.PermissionOverwrite(
-                    view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
-                )
+        try:
+            member = interaction.user
+            if not isinstance(member, discord.Member):
+                await interaction.response.send_message("Hiba", ephemeral=True)
+                return
+            queue = ACTIVE_QUEUES.get(self.gamemode)
+            if not queue or not queue["players"]:
+                await interaction.response.send_message("Nincs jatekos", ephemeral=True)
+                return
+            if not is_staff_member(member) and queue["opened_by"] != member.id:
+                await interaction.response.send_message("Nincs jogod", ephemeral=True)
+                return
+            next_player_obj = queue["players"].pop(0)
+            queue["called_players"].append(next_player_obj.discord_id)
+            await update_queue_message(self.gamemode)
+            guild = interaction.guild
+            category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
+            if not category or not isinstance(category, discord.CategoryChannel):
+                await interaction.response.send_message("Nincs kategoria", ephemeral=True)
+                return
+            channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}"[:50].lower()
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                guild.get_member(next_player_obj.discord_id): discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True
+                ),
+            }
+            if STAFF_ROLE_ID:
+                staff_role = guild.get_role(STAFF_ROLE_ID)
+                if staff_role:
+                    overwrites[staff_role] = discord.PermissionOverwrite(
+                        view_channel=True, send_messages=True, read_message_history=True, manage_channels=True
+                    )
 
-        channel = await guild.create_text_channel(
-            name=channel_name,
-            category=category,
-            overwrites=overwrites,
-            topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
-            reason=f"Queue ticket for {next_player_obj.minecraft_name}"
-        )
+            channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                overwrites=overwrites,
+                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
+                reason=f"Queue ticket"
+            )
 
-        embed = discord.Embed(title="Teszt", color=discord.Color.blurple())
-        embed.add_field(name="Mod", value=self.gamemode, inline=True)
-        embed.add_field(name="MC", value=next_player_obj.minecraft_name, inline=True)
-        embed.add_field(name="Jatekos", value=f"<@{next_player_obj.discord_id}>", inline=True)
-        embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
+            embed = discord.Embed(title="Teszt", color=discord.Color.blurple())
+            embed.add_field(name="Mod", value=self.gamemode, inline=True)
+            embed.add_field(name="MC", value=next_player_obj.minecraft_name, inline=True)
+            embed.add_field(name="Jatekos", value=f"<@{next_player_obj.discord_id}>", inline=True)
+            embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
 
-        view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
-        await channel.send(embed=embed, view=view)
-        await interaction.response.send_message("OK", ephemeral=True)
-    except Exception as e:
-        print(f"next err: {e}")
-        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+            await channel.send(embed=embed, view=view)
+            await interaction.response.send_message("OK", ephemeral=True)
+        except Exception as e:
+            print(f"next err: {e}")
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 class QueueTesterView(discord.ui.View):
