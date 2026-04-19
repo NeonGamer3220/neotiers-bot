@@ -1448,31 +1448,35 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Ticket zárása", style=discord.ButtonStyle.danger, custom_id="neotiers_close_ticket")
     async def close(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        channel = interaction.channel
-        if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
-            return
+        try:
+            channel = interaction.channel
+            if not isinstance(channel, discord.TextChannel):
+                await interaction.response.send_message("❌ Hiba", ephemeral=True)
+                return
 
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
-            return
+            member = interaction.user
+            topic = channel.topic or ""
+            owner_id = 0
+            if "owner=" in topic:
+                try:
+                    owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
+                except:
+                    owner_id = 0
 
-        # Get owner_id from channel topic (stored when ticket was created)
-        topic = channel.topic or ""
-        owner_id = 0
-        if "owner=" in topic:
+            if member.id != owner_id and not is_staff_member(member):
+                await interaction.response.send_message("❌ Nincs jogod", ephemeral=True)
+                return
+
+            await interaction.response.send_message("✅ Ticket bezárva!", ephemeral=True)
+            set_last_closed(owner_id, "", time.time())
+            await asyncio.sleep(2)
             try:
-                owner_id = int(topic.split("owner=")[1].split("|")[0].strip())
-            except (ValueError, IndexError):
-                owner_id = 0
-
-        # Allow both ticket owner AND staff to close
-        if member.id != owner_id and not is_staff_member(member):
-            await interaction.response.send_message("Nincs jogosultságod a ticket zárásához.", ephemeral=True)
-            return
-
-        await interaction.response.send_message("✅ Ticket zárása... 3 mp múlva törlöm a csatornát.", ephemeral=True)
+                await channel.delete(reason="Ticket closed")
+            except:
+                pass
+        except Exception as e:
+            print(f"close ticket error: {e}")
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
         # Get owner_id and mode_key from channel topic
         topic = channel.topic or ""
@@ -1506,17 +1510,10 @@ class CloseTicketView(discord.ui.View):
     @discord.ui.button(label="Tier adása", style=discord.ButtonStyle.success, custom_id="neotiers_give_tier")
     async def give_tier(self, interaction: discord.Interaction, _button: discord.ui.Button):
         """Give tier to the ticket owner - only for staff"""
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
+        if not is_staff_member(interaction.user):
+            await interaction.response.send_message("❌ Nincs jogod", ephemeral=True)
             return
-
-        # Only staff can give tier
-        if not is_staff_member(member):
-            await interaction.response.send_message("Nincs jogosultságod tier adásához.", ephemeral=True)
-            return
-
-        channel = interaction.channel
+        await interaction.response.send_message("✅ Köszi! Tier adás kész.", ephemeral=True)
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
             return
@@ -1590,8 +1587,9 @@ class TierSelect(discord.ui.Select):
         super().__init__(placeholder="Elért rang...", options=options, custom_id="tier_select")
 
     async def callback(self, interaction: discord.Interaction):
-        selected_tier = self.values[0]
-        view = self.view
+        try:
+            selected_tier = self.values[0]
+            view = self.view
         owner_id = view.owner_id
         linked_minecraft = view.linked_minecraft
         tester = view.tester
@@ -1725,6 +1723,9 @@ class TierSelect(discord.ui.Select):
             await interaction.response.send_message(f"✅ Tier beállítva: **{selected_tier}**", ephemeral=True)
             # Set cooldown even without website save
             set_last_closed(owner_id, mode_key, time.time())
+        except Exception as e:
+            print(f"tier select error: {e}")
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
 
 
 class TicketPanelView(discord.ui.View):
