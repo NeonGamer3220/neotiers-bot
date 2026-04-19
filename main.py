@@ -2504,40 +2504,45 @@ class QueueOpenSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
-            return
+        try:
+            member = interaction.user
+            if not isinstance(member, discord.Member):
+                await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
+                return
 
-        if not is_staff_member(member):
-            await interaction.response.send_message("❌ Csak tesztelők nyithatnak queue-t.", ephemeral=True)
-            return
+            if not is_staff_member(member):
+                await interaction.response.send_message("❌ Csak tesztelők nyithatnak queue-t.", ephemeral=True)
+                return
 
-        mode_key = self.values[0]
-        mode_display = get_gamemode_display_name(mode_key)
+            mode_key = self.values[0]
+            mode_display = get_gamemode_display_name(mode_key)
 
-        if mode_key in ACTIVE_QUEUES:
-            await interaction.response.send_message(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
-            return
+            if mode_key in ACTIVE_QUEUES:
+                await interaction.response.send_message(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
+                return
 
-        ACTIVE_QUEUES[mode_key] = {
-            "opened_by": member.id,
-            "opened_at": time.time(),
-            "players": [],
-            "called_players": []
-        }
+            ACTIVE_QUEUES[mode_key] = {
+                "opened_by": member.id,
+                "opened_at": time.time(),
+                "players": [],
+                "called_players": []
+            }
 
-        channel_id = QUEUE_CHANNELS.get(mode_key)
-        if not channel_id:
-            await interaction.response.send_message(
-                f"❌ Nincs channel beállítva ehhez a gamemode-hoz: {mode_display}",
-                ephemeral=True
-            )
-            return
+            channel_id = QUEUE_CHANNELS.get(mode_key)
+            if not channel_id:
+                await interaction.response.send_message(
+                    f"❌ Nincs channel beállítva ehhez a gamemode-hoz: {mode_display}",
+                    ephemeral=True
+                )
+                return
 
-        channel = member.guild.get_channel(channel_id)
-        if not channel or not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message(f"❌ Channel nem található: {channel_id}", ephemeral=True)
+            channel = member.guild.get_channel(channel_id)
+            if not channel or not isinstance(channel, discord.TextChannel):
+                await interaction.response.send_message(f"❌ Channel nem található: {channel_id}", ephemeral=True)
+                return
+        except Exception as e:
+            print(f"QueueOpenSelect callback error: {e}")
+            await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
             return
 
         ping_role_id = QUEUE_PING_ROLES.get(mode_key)
@@ -2547,26 +2552,33 @@ class QueueOpenSelect(discord.ui.Select):
             if role:
                 ping_mention = role.mention
 
-        content = ping_mention if ping_mention else None
-        embed = discord.Embed(
-            title=f"🟢 {mode_display} Queue",
-            description="A queue nyitva van! Kattints a gombokhoz alább.",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
-        embed.set_footer(text=f"Nyitotta: {member.display_name}")
+        try:
+            content = ping_mention if ping_mention else None
+            embed = discord.Embed(
+                title=f"🟢 {mode_display} Queue",
+                description="A queue nyitva van! Kattints a gombokhoz alább.",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
+            embed.set_footer(text=f"Nyitotta: {member.display_name}")
 
-        view = QueueUserView(mode_key)
-        message = await channel.send(content=content, embed=embed, view=view)
+            view = QueueUserView(mode_key)
+            message = await channel.send(content=content, embed=embed, view=view)
 
-        QUEUE_MESSAGE_IDS[message.id] = mode_key
+            QUEUE_MESSAGE_IDS[message.id] = mode_key
 
-        tester_view = QueueTesterView(mode_key)
-        await interaction.response.send_message(
-            f"✅ **{mode_display}** queue megnyitva!",
-            view=tester_view,
-            ephemeral=True
-        )
+            tester_view = QueueTesterView(mode_key)
+            await interaction.response.send_message(
+                f"✅ **{mode_display}** queue megnyitva!",
+                view=tester_view,
+                ephemeral=True
+            )
+        except Exception as e:
+            print(f"Queue open error: {e}")
+            await interaction.response.send_message(
+                f"❌ Hiba: {e}",
+                ephemeral=True
+            )
 
 
 class QueueOpenPanelView(discord.ui.View):
