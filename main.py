@@ -8,64 +8,8 @@ import string
 from typing import Dict, Any, Optional, List
 
 # =========================
-# APRIL FOOLS' DAY MODE 🎉
+# APRIL FOOLS' DAY MODE (Disabled)
 # =========================
-APRIL_FOOLS_MODE = False  # Set to False to disable April Fools' effects
-
-APRIL_FOOLS_MESSAGES = [
-    "🤡 APRILIS BOLONDOK! 🤡",
-    "🎪 A tierlist ma egy cirkusz! 🎪",
-    "🎭 Ez csak egy vicc, ugye? 🎭",
-    "🃏 A rangod: ULTRA BOLOND! 🃏",
-    "🎪 Ma mindenki HT1! (nem) 🎪",
-    "🤡 A bot ma részeg! 🤡",
-    "🎭 Áprilisi tréfa! 🎭",
-    "🎪 A tierlist fordítva működik! 🎪",
-    "🃏 A tesztelők ma bolondok! 🃏",
-    "🤡 Ez nem valódi eredmény! 🤡",
-]
-
-GLITCH_CHARS = ["̸", "̴", "̵", "̶", "̷", "̸", "̨", "̧", "̢", "̛", "̤", "̥", "̦", "̩", "̪", "̫", "̬", "̭", "̮", "̯", "̰", "̱", "̲", "̳", "̴", "̵", "̶", "̷", "̸", "̹", "̺", "̻", "̼", "̽", "̾", "̿", "̀", "́", "̓", "̈́", "ͅ", "͆", "͇", "͈", "͉", "͊", "͋", "͌", "͍", "͎", "͏", "͐", "͑", "͒", "͓", "͔", "͕", "͖", "͗", "͘", "͙", "͚", "͛", "͜", "͝", "͞", "͟", "͠", "͡", "͢", "ͣ", "ͤ", "ͥ", "ͦ", "ͧ", "ͨ", "ͩ", "ͪ", "ͫ", "ͬ", "ͭ", "ͮ", "ͯ"]
-
-def add_glitch(text: str, intensity: float = 0.3) -> str:
-    """Add random glitch characters to text for April Fools' effect"""
-    if not APRIL_FOOLS_MODE:
-        return text
-    result = ""
-    for char in text:
-        result += char
-        if random.random() < intensity:
-            result += random.choice(GLITCH_CHARS)
-    return result
-
-def get_april_fools_message() -> str:
-    """Get a random April Fools' message"""
-    if not APRIL_FOOLS_MODE:
-        return ""
-    return random.choice(APRIL_FOOLS_MESSAGES)
-
-def get_funny_rank(rank: str) -> str:
-    """Get a funny/messed up version of a rank for April Fools'"""
-    if not APRIL_FOOLS_MODE:
-        return rank
-    funny_ranks = {
-        "Unranked": "🤡 BOLOND",
-        "LT5": "🎪 Cirkuszi bohóc",
-        "HT5": "🃏 Kártya trükk",
-        "LT4": "🎭 Színházi színész",
-        "HT4": "🤡 Profi bohóc",
-        "LT3": "🎪 Cirkuszi igazgató",
-        "HT3": "🃏 Mágus",
-        "LT2": "🎭 Rendező",
-        "HT2": "🤡 Főbohóc",
-        "LT1": "🎪 Cirkusz tulajdonos",
-        "HT1": "🃏 ULTRA BOLOND",
-    }
-    return funny_ranks.get(rank, f"🤡 {rank} (ma bolond)")
-
-def should_april_fools_glitch() -> bool:
-    """Randomly decide if we should add April Fools' glitch effects"""
-    return APRIL_FOOLS_MODE and random.random() < 0.15  # 15% chance
 
 def truncate_message(text: str, max_length: int = 1900) -> str:
     """Truncate a message to fit Discord's 2000 character limit with safety margin"""
