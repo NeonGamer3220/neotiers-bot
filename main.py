@@ -2055,7 +2055,7 @@ class QueueUserView(discord.ui.View):
             await interaction.response.send_message("Nincs jogod", ephemeral=True)
             return
         next_player_obj = queue["players"].pop(0)
-            queue["called_players"].append(next_player_obj.discord_id)
+        queue["called_players"].append(next_player_obj.discord_id)
             await update_queue_message(self.gamemode)
             guild = interaction.guild
             category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
