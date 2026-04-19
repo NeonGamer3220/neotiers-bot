@@ -1144,9 +1144,10 @@ class QueueOpenSelect(discord.ui.Select):
                 await interaction.response.send_message("Nincs channel", ephemeral=True)
                 return
 
-            channel = member.guild.get_channel(channel_id)
+            channel = interaction.guild.get_channel(channel_id)
             if not channel or not isinstance(channel, discord.TextChannel):
-                await interaction.response.send_message("Channel nem talalt", ephemeral=True)
+                print(f"Queue channel not found for {mode_key}: {channel_id}")
+                await interaction.response.send_message(f"Channel nem talalt: {mode_key}", ephemeral=True)
                 return
 
             role = None
