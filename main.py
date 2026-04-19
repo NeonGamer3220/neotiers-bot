@@ -1986,19 +1986,19 @@ class QueueUserView(discord.ui.View):
         super().__init__(timeout=None)
         self.gamemode = gamemode
 
-    @discord.ui.button(label="Belepes", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("OK", ephemeral=True)
 
-    @discord.ui.button(label="Kilepes", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger)
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("OK", ephemeral=True)
 
-    @discord.ui.button(label="Bezar", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary)
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("OK", ephemeral=True)
 
-    @discord.ui.button(label="Kovetkezo", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("OK", ephemeral=True)
 
