@@ -7,6 +7,12 @@ from typing import Dict, Any, List
 
 from shared_utils import *
 
+# Bot will be set from main.py after it's defined
+try:
+    from main import bot
+except ImportError:
+    bot = None
+
 
 # =========================
 # UI VIEWS
