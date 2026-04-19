@@ -7,11 +7,12 @@ from typing import Dict, Any, List
 
 from shared_utils import *
 
-# Bot will be set from main.py after it's defined
-try:
-    from main import bot
-except ImportError:
-    bot = None
+# Bot reference - will be set from main.py
+bot = None
+
+def set_bot(bot_instance):
+    global bot
+    bot = bot_instance
 
 
 # =========================

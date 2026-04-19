@@ -21,6 +21,10 @@ from shared_utils import *
 from core_testing import *
 from misc_features import *
 
+# Register bot reference in modules that need it
+from core_testing import set_bot as core_set_bot
+core_set_bot(bot)
+
 # =========================
 # HEALTH SERVER (Railway)
 # =========================
