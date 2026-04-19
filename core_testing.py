@@ -7,25 +7,25 @@ from typing import Dict, Any, List
 
 from shared_utils import *
 
-# Bot reference - will be set from main.py
-bot = None
+# Bot reference - will be passed from main.py
+_bot = None
 
 # Lazy command decorator that defers until bot is set
 _pending_commands = []
 
 def set_bot(bot_instance):
-    global bot
-    bot = bot_instance
+    global _bot
+    _bot = bot_instance
     # Register all pending commands now that we have the bot
     for cmd_func, cmd_kwargs in _pending_commands:
-        bot.tree.command(**cmd_kwargs)(cmd_func)
+        _bot.tree.command(**cmd_kwargs)(cmd_func)
     _pending_commands.clear()
 
 def lazy_command(**kwargs):
     def decorator(func):
-        if bot is not None:
+        if _bot is not None:
             # Bot already set, register immediately
-            bot.tree.command(**kwargs)(func)
+            _bot.tree.command(**kwargs)(func)
         else:
             # Defer registration until bot is set
             _pending_commands.append((func, kwargs))
