@@ -2657,15 +2657,18 @@ class QueueOpenSelect(discord.ui.Select):
             await interaction.response.send_message(f"❌ Hiba: {e}", ephemeral=True)
             return
 
-        ping_role_id = QUEUE_PING_ROLES.get(mode_key)
-        ping_mention = ""
-        if ping_role_id:
-            role = member.guild.get_role(ping_role_id)
-            if role:
-                ping_mention = role.mention
+        ping_mention = None
+        try:
+            ping_role_id = QUEUE_PING_ROLES.get(mode_key)
+            if ping_role_id:
+                role = member.guild.get_role(ping_role_id)
+                if role:
+                    ping_mention = role.mention
+        except Exception as e:
+            print(f"Ping role error: {e}")
+            ping_mention = None
 
         try:
-            content = ping_mention if ping_mention else None
             embed = discord.Embed(
                 title=f"🟢 {mode_display} Queue",
                 description="A queue nyitva van! Kattints a gombokhoz alább.",
