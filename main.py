@@ -2109,7 +2109,7 @@ class QueueUserView(discord.ui.View):
             return
         if not is_staff_member(member) and queue["opened_by"] != member.id:
             await interaction.response.send_message("Nincs jogod", ephemeral=True)
-                return
+            return
             next_player_obj = queue["players"].pop(0)
             queue["called_players"].append(next_player_obj.discord_id)
             await update_queue_message(self.gamemode)
