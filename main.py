@@ -2543,11 +2543,14 @@ def _choices_from_list(values):
 
 @app_commands.command(name="ticketpanel", description="Ticket panel üzenet kirakása.")
 async def ticketpanel(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     try:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.followup.send("Hiba.", ephemeral=True)
+            return
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
         if interaction.channel is None:
             await interaction.followup.send("Hiba: nincs csatorna.", ephemeral=True)
@@ -2731,8 +2734,12 @@ async def tests_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.guild:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
+            return
+
+        if not is_staff_member(interaction.user):
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
         if not WEBSITE_URL:
