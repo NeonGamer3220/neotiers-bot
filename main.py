@@ -482,12 +482,12 @@ def get_gamemode_display_name(mode_key: str) -> str:
 # =========================
 def _load_data() -> Dict[str, Any]:
     if not os.path.exists(DATA_FILE):
-        return {"ticket_state": {}, "cooldowns": {}}
+        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None}
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return {"ticket_state": {}, "cooldowns": {}}
+        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None}
 
 
 def _save_data(data: Dict[str, Any]) -> None:
@@ -2753,6 +2753,13 @@ async def refresh_queue_panel(guild):
         embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
         embed.set_footer(text="Queue status frissítve")
         await msg.edit(embed=embed, view=QueuePanelView())
+    except discord.NotFound:
+        # Panel message was deleted, clear tracking
+        global QUEUE_PANEL_MESSAGE
+        QUEUE_PANEL_MESSAGE = None
+        data = _load_data()
+        data["queue_panel_message"] = None
+        _save_data(data)
     except Exception as e:
         print(f"Error refreshing queue panel: {e}")
 
@@ -2784,6 +2791,11 @@ async def queuepanel(interaction: discord.Interaction):
     message = await channel.send(embed=embed, view=QueuePanelView())
     global QUEUE_PANEL_MESSAGE
     QUEUE_PANEL_MESSAGE = (channel.id, message.id)
+    
+    # Persist panel message ID
+    data = _load_data()
+    data["queue_panel_message"] = [channel.id, message.id]
+    _save_data(data)
     
     await interaction.response.send_message("✅ Panel elküldve!", ephemeral=True)
     await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
@@ -4266,6 +4278,16 @@ async def on_ready():
         bot.add_view(QueueActionView())  # Generic instance; gamemode derived from message
         bot.add_view(PingPanelView())
         bot._persistent_views_added = True
+
+    # Load persisted queue panel message ID
+    global QUEUE_PANEL_MESSAGE
+    try:
+        data = _load_data()
+        panel_data = data.get("queue_panel_message")
+        if panel_data and isinstance(panel_data, list) and len(panel_data) == 2:
+            QUEUE_PANEL_MESSAGE = (panel_data[0], panel_data[1])
+    except Exception as e:
+        print(f"Error loading queue panel message: {e}")
 
     # Rebuild queue message ID mapping after restart
     if GUILD_ID:
