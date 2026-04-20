@@ -2770,6 +2770,7 @@ async def rebuild_queue_message_ids(guild):
 
 async def refresh_queue_panel(guild):
     """Refresh the queue panel with current status"""
+    global QUEUE_PANEL_MESSAGE
     if QUEUE_PANEL_MESSAGE is None:
         return
     channel_id, msg_id = QUEUE_PANEL_MESSAGE
