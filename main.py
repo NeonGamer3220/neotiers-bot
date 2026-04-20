@@ -525,21 +525,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 http_session = None
 
-# Add commands to bot tree
-bot.tree.add_command(queuepanel)
-bot.tree.add_command(closequeue)
-bot.tree.add_command(tests)
-bot.tree.add_command(testresult)
-bot.tree.add_command(cooldown)
-bot.tree.add_command(profile)
-bot.tree.add_command(link)
-bot.tree.add_command(unlink)
-bot.tree.add_command(mylink)
-bot.tree.add_command(tierlistban)
-bot.tree.add_command(tierlistunban)
-bot.tree.add_command(removetierlist)
-print(f"Commands added to tree: {len(bot.tree._global_commands)}")
-
 # =========================
 # UI VIEWS
 # =========================
@@ -1207,13 +1192,23 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
 
-    # DEBUG: Print all registered commands
-    print(f"DEBUG: Registered commands: {len(bot.tree._global_commands)} global, {len(bot.tree._guild_commands)} guild")
+    # Add commands to tree
+    bot.tree.add_command(queuepanel)
+    bot.tree.add_command(closequeue)
+    bot.tree.add_command(tests)
+    bot.tree.add_command(testresult)
+    bot.tree.add_command(cooldown)
+    bot.tree.add_command(profile)
+    bot.tree.add_command(link)
+    bot.tree.add_command(unlink)
+    bot.tree.add_command(mylink)
+    bot.tree.add_command(tierlistban)
+    bot.tree.add_command(tierlistunban)
+    bot.tree.add_command(removetierlist)
+    
+    print(f"Commands added: {len(bot.tree._global_commands)}")
     for cmd in bot.tree._global_commands:
-        print(f"  - /{cmd.name} (global)")
-    for guild_id, cmds in bot.tree._guild_commands.items():
-        for cmd in cmds:
-            print(f"  - /{cmd.name} (guild {guild_id})")
+        print(f"  - /{cmd.name}")
 
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
