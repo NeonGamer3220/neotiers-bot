@@ -2480,22 +2480,32 @@ class QueueOpenButton(discord.ui.Button):
         await interaction.followup.send(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
 
 
-@app_commands.command(name="queuepanel", description="Queue panel kirakása")
+@app_commands.command(name="queuepanel", description="Queue panel kirakása (tesztereknek)")
 async def queuepanel(interaction: discord.Interaction):
-    """Open queue panel - available for everyone"""
+    """Open queue panel - sends to channel for all testers"""
     await interaction.response.defer(ephemeral=True)
     
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
         await interaction.followup.send("Hiba.", ephemeral=True)
         return
+    if not is_staff_member(interaction.user):
+        await interaction.followup.send("Nincs jogod.", ephemeral=True)
+        return
 
+    # Find queue channel
+    queue_channel_id = QUEUE_CHANNELS.get("sword")  # Use sword channel as default
+    channel = interaction.guild.get_channel(queue_channel_id) if queue_channel_id else interaction.channel
+    
     lines = []
     for label, key, _rid in TICKET_TYPES:
         status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
         lines.append(f"**{label}**: {status}")
 
     embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
-    await interaction.followup.send(embed=embed, view=QueuePanelView(), ephemeral=True)
+    embed.set_footer(text=f"Kinyitotta: {interaction.user.display_name}")
+    
+    await channel.send(embed=embed, view=QueuePanelView())
+    await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
 
 
 @app_commands.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
