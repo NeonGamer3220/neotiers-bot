@@ -2580,7 +2580,11 @@ class QueueOpenButton(discord.ui.Button):
             description="A queue nyitva van! Kattints a gombokhoz alább.",
             color=discord.Color.green()
         )
-        embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
+        embed.add_field(name="Játékosok", value="Még senki nincs a queue-ban.", inline=False)
+        # Show opening tester
+        linked_mc = get_linked_minecraft_name(interaction.user.id) or "TESZTER"
+        tester_name = interaction.user.display_name
+        embed.add_field(name="Teszterek", value=f"{tester_name} ({linked_mc})", inline=False)
         embed.set_footer(text=f"Nyitotta: {interaction.user.display_name}")
 
         # Get ping role for this gamemode
