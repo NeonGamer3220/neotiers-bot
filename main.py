@@ -1967,6 +1967,7 @@ TICKET_CREATE_CATEGORY_ID = 1495038336744689674
 # In-memory queue storage
 ACTIVE_QUEUES: Dict[str, Dict[str, Any]] = {}
 QUEUE_MESSAGE_IDS: Dict[int, str] = {}
+QUEUE_PANEL_MESSAGE = None  # Tuple of (channel_id, message_id) for the queue panel message
 
 class QueuePlayer:
     """Represents a player in a queue"""
@@ -2384,11 +2385,17 @@ async def update_queue_message(gamemode: str):
             msg_id = mid
             break
     if not msg_id:
+        # Still try to refresh panel in case state changed
+        if channel.guild:
+            await refresh_queue_panel(channel.guild)
         return
 
     try:
         message = await channel.fetch_message(msg_id)
     except Exception:
+        # Fetch failed, but still refresh panel if state changed
+        if channel.guild:
+            await refresh_queue_panel(channel.guild)
         return
 
     queue = ACTIVE_QUEUES.get(gamemode)
@@ -2402,6 +2409,8 @@ async def update_queue_message(gamemode: str):
             await message.edit(embed=embed, view=None)
         except Exception:
             pass
+        if channel.guild:
+            await refresh_queue_panel(channel.guild)
         return
 
     player_lines = []
@@ -2436,6 +2445,8 @@ async def update_queue_message(gamemode: str):
         await message.edit(embed=embed, view=view)
     except Exception as e:
         print(f"Queue update error [{gamemode}]: {e}")
+    if channel.guild:
+        await refresh_queue_panel(channel.guild)
 
 
 async def queue_maintenance_task():
@@ -2610,7 +2621,7 @@ async def rebuild_queue_message_ids(guild):
         if not channel or not isinstance(channel, discord.TextChannel):
             continue
         try:
-            async for msg in channel.history(limit=50):
+            async for msg in channel.history(limit=200):
                 # Look for active queue messages: embed title contains "Queue" but not "Panel", and has components
                 if msg.embeds and msg.components and msg.embeds[0].title:
                     title = msg.embeds[0].title
@@ -2624,22 +2635,21 @@ async def rebuild_queue_message_ids(guild):
 
 async def refresh_queue_panel(guild):
     """Refresh the queue panel with current status"""
+    if QUEUE_PANEL_MESSAGE is None:
+        return
+    channel_id, msg_id = QUEUE_PANEL_MESSAGE
+    channel = guild.get_channel(channel_id)
+    if not channel or not isinstance(channel, discord.TextChannel):
+        return
     try:
-        # Find queue panel message and update it
-        for channel_id in QUEUE_CHANNELS.values():
-            channel = guild.get_channel(channel_id)
-            if not channel or not isinstance(channel, discord.TextChannel):
-                continue
-            async for message in channel.history(limit=10):
-                if message.embeds and "Queue Panel" in message.embeds[0].title:
-                    lines = []
-                    for label, key, _rid in TICKET_TYPES:
-                        status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
-                        lines.append(f"**{label}**: {status}")
-                    embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
-                    embed.set_footer(text=f"Queue status frissítve")
-                    await message.edit(embed=embed, view=QueuePanelView())
-                    break
+        msg = await channel.fetch_message(msg_id)
+        lines = []
+        for label, key, _rid in TICKET_TYPES:
+            status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
+            lines.append(f"**{label}**: {status}")
+        embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
+        embed.set_footer(text="Queue status frissítve")
+        await msg.edit(embed=embed, view=QueuePanelView())
     except Exception as e:
         print(f"Error refreshing queue panel: {e}")
 
@@ -2668,7 +2678,10 @@ async def queuepanel(interaction: discord.Interaction):
     embed.set_footer(text=f"Kinyitotta: {interaction.user.display_name}")
     
     # Send to channel - NOT ephemeral, visible for everyone
-    await channel.send(embed=embed, view=QueuePanelView())
+    message = await channel.send(embed=embed, view=QueuePanelView())
+    global QUEUE_PANEL_MESSAGE
+    QUEUE_PANEL_MESSAGE = (channel.id, message.id)
+    
     await interaction.response.send_message("✅ Panel elküldve!", ephemeral=True)
     await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
 
