@@ -188,13 +188,17 @@ async def supabase_select(table: str, filters: Dict[str, Any] = None) -> List[Di
             params[key] = f"eq.{value}"
 
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, headers=supabase_headers, params=params) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 else:
                     print(f"Supabase select error: {resp.status} - {await resp.text()}")
                     return []
+    except asyncio.TimeoutError:
+        print("Supabase select timeout")
+        return []
     except Exception as e:
         print(f"Supabase select exception: {e}")
         return []
@@ -1186,28 +1190,45 @@ async def start_health_server():
 
     # API endpoint for Minecraft link code verification
     async def verify_link(request):
-        # Skip auth check entirely for now - allow all requests
+        try:
+            # Get code from query params
+            code = request.query.get("code", "")
+            minecraft_name = request.query.get("minecraft", "")
 
-        # Get code from query params
-        code = request.query.get("code", "")
-        minecraft_name = request.query.get("minecraft", "")
+            if not code or not minecraft_name:
+                return web.json_response({"success": False, "error": "Missing code or minecraft parameter"}, status=400)
 
-        if not code or not minecraft_name:
-            return web.json_response({"success": False, "error": "Missing code or minecraft parameter"}, status=400)
+            # Verify the code
+            discord_id = await verify_link_code_async(code.upper())
 
-        # Verify the code
-        discord_id = await verify_link_code_async(code.upper())
+            if discord_id is None:
+                return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
 
-        if discord_id is None:
-            return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
+            # Ensure http_session is available for linking
+            global http_session
+            if http_session is None:
+                http_session = aiohttp.ClientSession()
 
-        # Ensure http_session is available for linking
-        global http_session
-        if http_session is None:
-            http_session = aiohttp.ClientSession()
+            # Link the Minecraft account to the Discord account
+            await link_minecraft_account_async(discord_id, minecraft_name)
 
-        # Link the Minecraft account to the Discord account
-        await link_minecraft_account_async(discord_id, minecraft_name)
+            # Send confirmation DM to the user
+            try:
+                user = await bot.fetch_user(discord_id)
+                if user:
+                    embed = discord.Embed(
+                        title="Összekapcsolás sikeres!",
+                        description=f"A Discord fiókod össze lett kapcsolva a **Minecraft** fiókkal!\n\n**Minecraft név:** `{minecraft_name}`",
+                        color=discord.Color.green()
+                    )
+                    await user.send(embed=embed)
+            except Exception as e:
+                print(f"Could not send DM: {e}")
+
+            return web.json_response({"success": True, "discord_id": discord_id, "minecraft": minecraft_name})
+        except Exception as e:
+            print(f"verify_link error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
 
         # Send confirmation DM to the user
         try:
