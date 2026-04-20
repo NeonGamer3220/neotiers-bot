@@ -1977,9 +1977,25 @@ class QueuePlayer:
 
 class QueueActionView(discord.ui.View):
     """Join/Leave/Close/Next buttons for queue messages"""
-    def __init__(self, gamemode: str):
+    def __init__(self, gamemode: str = None):
         super().__init__(timeout=None)
         self.gamemode = gamemode
+
+    def _get_gamemode(self, interaction: discord.Interaction) -> str:
+        """Get gamemode from instance or from message/channel mapping"""
+        if self.gamemode:
+            return self.gamemode
+        # Fallback 1: look up gamemode from message ID (for persistent view)
+        msg_id = getattr(interaction.message, 'id', None) if interaction.message else None
+        if msg_id and msg_id in QUEUE_MESSAGE_IDS:
+            return QUEUE_MESSAGE_IDS[msg_id]
+        # Fallback 2: derive from channel ID (each queue has its own channel)
+        channel_id = getattr(interaction.channel, 'id', None) if interaction.channel else None
+        if channel_id:
+            for gm, cid in QUEUE_CHANNELS.items():
+                if cid == channel_id:
+                    return gm
+        return None
 
     @discord.ui.button(label="Belépés a queue-ba", style=discord.ButtonStyle.success, custom_id="queue_join")
     async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1988,7 +2004,12 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
-        queue = ACTIVE_QUEUES.get(self.gamemode)
+        gamemode = self._get_gamemode(interaction)
+        if not gamemode:
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
             await interaction.response.send_message("❌ A queue nem létezik vagy nem nyitva.", ephemeral=True)
             return
@@ -2011,16 +2032,16 @@ class QueueActionView(discord.ui.View):
         # Check if user is a tester (staff member)
         if is_staff_member(member):
             queue["testers"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(self.gamemode)
+            await update_queue_message(gamemode)
             await interaction.response.send_message(
-                f"✅ Beléptél teszterként a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
                 ephemeral=True
             )
         else:
             queue["players"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(self.gamemode)
+            await update_queue_message(gamemode)
             await interaction.response.send_message(
-                f"✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+                f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
                 ephemeral=True
             )
 
@@ -2031,7 +2052,12 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
-        queue = ACTIVE_QUEUES.get(self.gamemode)
+        gamemode = self._get_gamemode(interaction)
+        if not gamemode:
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
             await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
             return
@@ -2039,9 +2065,9 @@ class QueueActionView(discord.ui.View):
         for i, p in enumerate(queue["players"]):
             if p.discord_id == member.id:
                 queue["players"].pop(i)
-                await update_queue_message(self.gamemode)
+                await update_queue_message(gamemode)
                 await interaction.response.send_message(
-                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                    f"✅ Kiléptél a **{get_gamemode_display_name(gamemode)}** queue-ból!",
                     ephemeral=True
                 )
                 return
@@ -2050,9 +2076,9 @@ class QueueActionView(discord.ui.View):
         for i, t in enumerate(queue.get("testers", [])):
             if t.discord_id == member.id:
                 queue["testers"].pop(i)
-                await update_queue_message(self.gamemode)
+                await update_queue_message(gamemode)
                 await interaction.response.send_message(
-                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                    f"✅ Kiléptél a **{get_gamemode_display_name(gamemode)}** queue-ból!",
                     ephemeral=True
                 )
                 return
@@ -2066,7 +2092,12 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
-        queue = ACTIVE_QUEUES.get(self.gamemode)
+        gamemode = self._get_gamemode(interaction)
+        if not gamemode:
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
             await interaction.response.send_message("❌ A queue már lezárva.", ephemeral=True)
             return
@@ -2075,9 +2106,9 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
             return
 
-        view = ConfirmCloseQueueView(self.gamemode)
+        view = ConfirmCloseQueueView(gamemode)
         await interaction.response.send_message(
-            f"Biztosan be szeretnéd zárni a **{get_gamemode_display_name(self.gamemode)}** queue-t?",
+            f"Biztosan be szeretnéd zárni a **{get_gamemode_display_name(gamemode)}** queue-t?",
             view=view,
             ephemeral=True
         )
@@ -2089,7 +2120,12 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
-        queue = ACTIVE_QUEUES.get(self.gamemode)
+        gamemode = self._get_gamemode(interaction)
+        if not gamemode:
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
+            return
+
+        queue = ACTIVE_QUEUES.get(gamemode)
         if not queue or not queue["players"]:
             await interaction.response.send_message("❌ Nincs több játékos a queue-ban.", ephemeral=True)
             return
@@ -2101,7 +2137,7 @@ class QueueActionView(discord.ui.View):
         # Get next player (FIFO)
         next_player_obj = queue["players"].pop(0)
         queue["called_players"].append(next_player_obj.discord_id)
-        await update_queue_message(self.gamemode)
+        await update_queue_message(gamemode)
 
         # Create ticket channel
         guild = interaction.guild
@@ -2110,7 +2146,7 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message("❌ Hiba: ticket kategória nem található.", ephemeral=True)
             return
 
-        channel_name = f"{self.gamemode}-{next_player_obj.minecraft_name}".lower().replace(" ", "-")[:50]
+        channel_name = f"{gamemode}-{next_player_obj.minecraft_name}".lower().replace(" ", "-")[:50]
         try:
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -2129,20 +2165,20 @@ class QueueActionView(discord.ui.View):
                 name=channel_name,
                 category=category,
                 overwrites=overwrites,
-                topic=f"owner={next_player_obj.discord_id} | mode={self.gamemode} | mc={next_player_obj.minecraft_name}",
+                topic=f"owner={next_player_obj.discord_id} | mode={gamemode} | mc={next_player_obj.minecraft_name}",
                 reason=f"Queue ticket for {next_player_obj.minecraft_name}"
             )
 
             embed = discord.Embed(
                 title="Teszt kérés",
                 description=f"**Játékos:** {next_player_obj.minecraft_name}\n"
-                           f"**Játékmód:** {get_gamemode_display_name(self.gamemode)}\n"
+                           f"**Játékmód:** {get_gamemode_display_name(gamemode)}\n"
                            f"**Discord:** <@{next_player_obj.discord_id}>",
                 color=discord.Color.blurple()
             )
             embed.set_thumbnail(url=f"https://minotar.net/helm/{next_player_obj.minecraft_name}/128.png")
 
-            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=self.gamemode)
+            view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=gamemode)
             await channel.send(embed=embed, view=view)
 
             await interaction.response.send_message(
@@ -2559,6 +2595,27 @@ class QueueOpenButton(discord.ui.Button):
 
         # Refresh queue panel
         await refresh_queue_panel(interaction.guild)
+
+
+async def rebuild_queue_message_ids(guild):
+    """Scan queue channels to rebuild QUEUE_MESSAGE_IDS mapping after restart"""
+    global QUEUE_MESSAGE_IDS
+    QUEUE_MESSAGE_IDS.clear()
+    for gamemode, channel_id in QUEUE_CHANNELS.items():
+        channel = guild.get_channel(channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            continue
+        try:
+            async for msg in channel.history(limit=50):
+                # Look for active queue messages: embed title contains "Queue" but not "Panel", and has components
+                if msg.embeds and msg.components and msg.embeds[0].title:
+                    title = msg.embeds[0].title
+                    # Skip the Queue Panel messages (they have "Panel" in title)
+                    if "Queue" in title and "Panel" not in title:
+                        QUEUE_MESSAGE_IDS[msg.id] = gamemode
+                        break  # Only one active queue per channel
+        except Exception as e:
+            print(f"Error scanning channel {channel_id} for queue message: {e}")
 
 
 async def refresh_queue_panel(guild):
@@ -4081,9 +4138,20 @@ async def wipe_global_commands_once():
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
 
-    # persistent views
-    bot.add_view(TicketPanelView())
-    bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
+    # Register persistent views only once (avoid duplicates on reconnect)
+    if not hasattr(bot, '_persistent_views_added'):
+        bot.add_view(TicketPanelView())
+        bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
+        bot.add_view(QueuePanelView())
+        bot.add_view(QueueActionView())  # Generic instance; gamemode derived from message
+        bot.add_view(PingPanelView())
+        bot._persistent_views_added = True
+
+    # Rebuild queue message ID mapping after restart
+    if GUILD_ID:
+        guild = bot.get_guild(GUILD_ID)
+        if guild:
+            await rebuild_queue_message_ids(guild)
 
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
