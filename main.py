@@ -3972,16 +3972,14 @@ async def on_ready():
 
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
-    # Always clear commands first to avoid signature mismatch
+    # Sync commands
     try:
         if guild:
-            bot.tree.clear_commands(guild=guild)
             await bot.tree.sync(guild=guild)
-            print(f"Slash commands cleared and synced to guild {GUILD_ID}")
+            print(f"Slash commands synced to guild {GUILD_ID}")
         else:
-            bot.tree.clear_commands(guild=None)
             await bot.tree.sync()
-            print("Slash commands cleared and synced globally")
+            print("Slash commands synced globally")
     except Exception as e:
         print("Sync failed:", e)
 
