@@ -1188,8 +1188,11 @@ async def start_health_server():
     async def health(_request):
         return web.Response(text="ok")
 
+    print("Health server endpoints registered")
+
     # API endpoint for Minecraft link code verification
     async def verify_link(request):
+        print(f"verify_link called: code={request.query.get('code')}, minecraft={request.query.get('minecraft')}")
         try:
             # Get code from query params
             code = request.query.get("code", "")
@@ -1198,8 +1201,10 @@ async def start_health_server():
             if not code or not minecraft_name:
                 return web.json_response({"success": False, "error": "Missing code or minecraft parameter"}, status=400)
 
+            print(f"Verifying code: {code}")
             # Verify the code
             discord_id = await verify_link_code_async(code.upper())
+            print(f"Verified: discord_id={discord_id}")
 
             if discord_id is None:
                 return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
@@ -1207,9 +1212,11 @@ async def start_health_server():
             # Ensure http_session is available for linking
             global http_session
             if http_session is None:
+                print("Creating http_session")
                 http_session = aiohttp.ClientSession()
 
             # Link the Minecraft account to the Discord account
+            print(f"Linking account: {discord_id} -> {minecraft_name}")
             await link_minecraft_account_async(discord_id, minecraft_name)
 
             # Send confirmation DM to the user
@@ -1227,7 +1234,9 @@ async def start_health_server():
 
             return web.json_response({"success": True, "discord_id": discord_id, "minecraft": minecraft_name})
         except Exception as e:
+            import traceback
             print(f"verify_link error: {e}")
+            traceback.print_exc()
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
         # Send confirmation DM to the user
@@ -1280,7 +1289,7 @@ async def start_health_server():
     port = int(os.getenv("PORT", "8080"))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"Health server running on :{port}")
+    print(f"Health server running on 0.0.0.0:{port}")
 
 
 # =========================
