@@ -2484,7 +2484,7 @@ class QueueOpenButton(discord.ui.Button):
             "opened_by": interaction.user.id,
             "opened_at": time.time(),
             "players": [],
-            "testers": [],
+            "testers": [QueuePlayer(interaction.user.id, get_linked_minecraft_name(interaction.user.id) or "TESZTER")],
             "called_players": []
         }
 
