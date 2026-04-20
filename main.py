@@ -22,8 +22,10 @@ from core_testing import *
 from misc_features import *
 
 # Register bot reference in modules that need it
-from core_testing import set_bot
+from core_testing import set_bot, _pending_commands
 set_bot(bot)
+print(f"DEBUG: After set_bot, pending commands list: {len(_pending_commands)}")
+print(f"DEBUG: Bot tree commands: {list(bot.tree._registry)}")
 
 # =========================
 # HEALTH SERVER (Railway)
@@ -129,6 +131,11 @@ async def on_ready():
         await wipe_global_commands_once()
 
     try:
+        # Print all registered commands
+        print(f"DEBUG: Registered commands: {len(bot.tree._registry)}")
+        for cmd in bot.tree._registry:
+            print(f"  - {cmd.name}")
+
         if guild:
             await bot.tree.sync(guild=guild)
             print(f"Slash commands synced to guild {GUILD_ID}")
