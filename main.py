@@ -3974,6 +3974,9 @@ async def on_ready():
 
     # Sync commands
     try:
+        # Print all commands registered
+        print(f"Registered commands: {len(bot.tree._global_commands)} global, {len(bot.tree._guild_commands)} guild")
+        
         if guild:
             await bot.tree.sync(guild=guild)
             print(f"Slash commands synced to guild {GUILD_ID}")
@@ -3981,7 +3984,9 @@ async def on_ready():
             await bot.tree.sync()
             print("Slash commands synced globally")
     except Exception as e:
+        import traceback
         print("Sync failed:", e)
+        traceback.print_exc()
 
 
 async def main():
