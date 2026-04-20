@@ -2486,10 +2486,10 @@ async def queuepanel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        await interaction.response.send_message("Hiba.", ephemeral=True)
+        await interaction.followup.send("Hiba.", ephemeral=True)
         return
     if not is_staff_member(interaction.user):
-        await interaction.response.send_message("Nincs jogod.", ephemeral=True)
+        await interaction.followup.send("Nincs jogod.", ephemeral=True)
         return
 
     # Send to the channel where command was used - visible for everyone!
@@ -2504,8 +2504,8 @@ async def queuepanel(interaction: discord.Interaction):
     embed.set_footer(text=f"Kinyitotta: {interaction.user.display_name}")
     
     # Send to channel - NOT ephemeral, visible for everyone
-    await interaction.response.send_message("✅ Panel elküldve!", ephemeral=True)
     await channel.send(embed=embed, view=QueuePanelView())
+    await interaction.response.send_message("✅ Panel elküldve!", ephemeral=True)
     await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
 
 
