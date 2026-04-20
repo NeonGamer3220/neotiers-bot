@@ -1194,6 +1194,54 @@ def is_gamemode_tester_or_admin(member: discord.Member, gamemode: str) -> bool:
     return has_gamemode_tester_role(member, gamemode)
 
 
+async def get_player_rank_for_mode(username: str, mode_key: str) -> str:
+    """
+    Get a player's current rank for a specific gamemode from the website.
+    Returns "Unranked" if not found or on error.
+    """
+    if not WEBSITE_URL:
+        return "Unranked"
+    try:
+        res = await api_get_tests(username=username, mode=mode_key)
+        if res.get("status") == 200:
+            data = res.get("data", {})
+            test = data.get("test")
+            tests = data.get("tests", [])
+            target = test if test else (tests[0] if tests else None)
+            if target:
+                rank = str(target.get("rank", "Unranked"))
+                if rank and rank != "Unranked":
+                    return rank
+    except Exception:
+        pass
+    return "Unranked"
+
+
+def get_rank_value_min(rank: str) -> int:
+    """
+    Get numeric points value for a rank (lower = weaker).
+    This determines eligibility for certain actions.
+    """
+    return POINTS.get(rank, 0)
+
+
+def can_open_ticket(rank: str) -> bool:
+    """
+    Can open ticket if rank is LT3 or above (points >= 6).
+    Ranks: LT5(1) < HT5(2) < LT4(3) < HT4(4) < LT3(6) < HT3(8) < LT2(10) < HT2(12) < LT1(14) < HT1(18)
+    """
+    return get_rank_value_min(rank) >= 6  # LT3 = 6 points
+
+
+def can_join_queue(rank: str) -> bool:
+    """
+    Can join queue if rank is between LT5 and HT4 (inclusive).
+    That's points between 1-4 inclusive.
+    """
+    pts = get_rank_value_min(rank)
+    return 1 <= pts <= 4  # LT5=1, HT5=2, LT4=3, HT4=4
+
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -1840,6 +1888,16 @@ class TicketButton(discord.ui.Button):
             except Exception:
                 pass  # If ban check fails, continue (fail open)
 
+        # Rank check: only LT3+ can open tickets
+        player_rank = await get_player_rank_for_mode(linked_minecraft, self.mode_key)
+        if not can_open_ticket(player_rank):
+            await interaction.response.send_message(
+                f"❌ A **{get_gamemode_display_name(self.mode_key)}** ticket megnyitásához legalább **LT3** rang szükséges. "
+                f"Jelenlegi rangod: **{player_rank}**.",
+                ephemeral=True
+            )
+            return
+
         left = cooldown_left(member.id, self.mode_key)
         if left > 0:
             days = left // (24 * 3600)
@@ -2058,6 +2116,16 @@ class QueueActionView(discord.ui.View):
         if not linked_mc:
             await interaction.response.send_message(
                 "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
+                ephemeral=True
+            )
+            return
+
+        # Rank check: only LT5-HT4 can join queues
+        player_rank = await get_player_rank_for_mode(linked_mc, gamemode)
+        if not can_join_queue(player_rank):
+            await interaction.response.send_message(
+                f"❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. "
+                f"Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).",
                 ephemeral=True
             )
             return
