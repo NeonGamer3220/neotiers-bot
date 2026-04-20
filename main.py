@@ -2117,6 +2117,9 @@ class ConfirmCloseQueueView(discord.ui.View):
             ephemeral=True
         )
 
+        # Refresh queue panel
+        await refresh_queue_panel(interaction.guild)
+
         # Try to update the message
         try:
             msg_id = None
@@ -2478,6 +2481,31 @@ class QueueOpenButton(discord.ui.Button):
         QUEUE_MESSAGE_IDS[message.id] = mode_key
 
         await interaction.followup.send(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
+
+        # Refresh queue panel
+        await refresh_queue_panel(interaction.guild)
+
+
+async def refresh_queue_panel(guild):
+    """Refresh the queue panel with current status"""
+    try:
+        # Find queue panel message and update it
+        for channel_id in QUEUE_CHANNELS.values():
+            channel = guild.get_channel(channel_id)
+            if not channel or not isinstance(channel, discord.TextChannel):
+                continue
+            async for message in channel.history(limit=10):
+                if message.embeds and "Queue Panel" in message.embeds[0].title:
+                    lines = []
+                    for label, key, _rid in TICKET_TYPES:
+                        status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
+                        lines.append(f"**{label}**: {status}")
+                    embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
+                    embed.set_footer(text=f"Queue status frissítve")
+                    await message.edit(embed=embed, view=QueuePanelView())
+                    break
+    except Exception as e:
+        print(f"Error refreshing queue panel: {e}")
 
 
 @app_commands.command(name="queuepanel", description="Queue panel kirakása (tesztereknek)")
