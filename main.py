@@ -525,6 +525,21 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 http_session = None
 
+# Add commands to bot tree
+bot.tree.add_command(queuepanel)
+bot.tree.add_command(closequeue)
+bot.tree.add_command(tests)
+bot.tree.add_command(testresult)
+bot.tree.add_command(cooldown)
+bot.tree.add_command(profile)
+bot.tree.add_command(link)
+bot.tree.add_command(unlink)
+bot.tree.add_command(mylink)
+bot.tree.add_command(tierlistban)
+bot.tree.add_command(tierlistunban)
+bot.tree.add_command(removetierlist)
+print(f"Commands added to tree: {len(bot.tree._global_commands)}")
+
 # =========================
 # UI VIEWS
 # =========================
