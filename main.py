@@ -1162,6 +1162,38 @@ def is_staff_member(member: discord.Member) -> bool:
     return False
 
 
+def get_gamemode_tester_role_id(gamemode: str) -> Optional[int]:
+    """Get the tester role ID for a specific gamemode from TICKET_TYPES"""
+    for label, key, role_id in TICKET_TYPES:
+        if key == gamemode.lower():
+            return role_id
+    return None
+
+
+def has_gamemode_tester_role(member: discord.Member, gamemode: str) -> bool:
+    """Check if member has the specific tester role for this gamemode"""
+    role_id = get_gamemode_tester_role_id(gamemode)
+    if not role_id:
+        return False
+    return any(r.id == role_id for r in member.roles)
+
+
+def is_gamemode_tester_or_admin(member: discord.Member, gamemode: str) -> bool:
+    """Check if member can act as a tester for this gamemode (admin or has specific role)"""
+    # Admins always allowed
+    if member.guild_permissions.administrator:
+        return True
+    # Debug overrides
+    if DEBUG_ALLOWED_USERS and member.id in DEBUG_ALLOWED_USERS:
+        return True
+    if DEBUG_ALLOWED_ROLES:
+        for role_id in DEBUG_ALLOWED_ROLES:
+            if any(r.id == role_id for r in member.roles):
+                return True
+    # Specific gamemode tester role
+    return has_gamemode_tester_role(member, gamemode)
+
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -2030,8 +2062,8 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        # Check if user is a tester (staff member)
-        if is_staff_member(member):
+        # Check if user is a tester for THIS specific gamemode (or admin/debug)
+        if is_gamemode_tester_or_admin(member, gamemode):
             queue["testers"].append(QueuePlayer(member.id, linked_mc))
             await update_queue_message(gamemode)
             await interaction.response.send_message(
@@ -2557,8 +2589,11 @@ class QueueOpenButton(discord.ui.Button):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.followup.send("Hiba: csak szerveren használható.", ephemeral=True)
             return
-        if not is_staff_member(interaction.user):
-            await interaction.followup.send("Nincs jogod.", ephemeral=True)
+        if not is_gamemode_tester_or_admin(interaction.user, self.mode_key):
+            await interaction.followup.send(
+                "❌ Csak az adott játékmód tesztelői nyithatnak queue-t. Szerezd be a megfelelő tesztelő role-t!",
+                ephemeral=True
+            )
             return
             
         mode_key = self.mode_key
