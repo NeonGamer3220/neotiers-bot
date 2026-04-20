@@ -2347,7 +2347,7 @@ def _choices_from_list(values):
 
 @app_commands.command(name="ticketpanel", description="Ticket panel üzenet kirakása.")
 async def ticketpanel(interaction: discord.Interaction):
-     await interaction.response.defer()
+    await interaction.response.defer()
 
     try:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -2424,7 +2424,7 @@ async def autocomplete_testresult_username(interaction: discord.Interaction, cur
     gamemode=_choices_from_list(MODE_LIST)
 )
 async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
-     """Open a queue for a specific gamemode"""
+    """Open a queue for a specific gamemode"""
     await interaction.response.defer()
 
     try:
@@ -2433,7 +2433,7 @@ async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Ch
             return
         mode_key = gamemode.value.lower()
         mode_display = get_gamemode_display_name(mode_key)
-         # Check if queue already open
+        # Check if queue already open
         if mode_key in ACTIVE_QUEUES:
             await interaction.followup.send(f"❌ A **{mode_display}** queue már nyitva van!", ephemeral=True)
             return
@@ -2487,7 +2487,7 @@ async def queuepanel(interaction: discord.Interaction, gamemode: app_commands.Ch
 @app_commands.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
 async def pingpanel(interaction: discord.Interaction):
     """Set up ping notifications for queues"""
-     await interaction.response.defer()
+    await interaction.response.defer()
 
     try:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
