@@ -1955,6 +1955,9 @@ class QueueActionView(discord.ui.View):
         if any(p.discord_id == member.id for p in queue["players"]):
             await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
             return
+        if any(t.discord_id == member.id for t in queue.get("testers", [])):
+            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
+            return
 
         linked_mc = get_linked_minecraft_name(member.id)
         if not linked_mc:
@@ -1964,12 +1967,21 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        queue["players"].append(QueuePlayer(member.id, linked_mc))
-        await update_queue_message(self.gamemode)
-        await interaction.response.send_message(
-            f"✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
-            ephemeral=True
-        )
+        # Check if user is a tester (staff member)
+        if is_staff_member(member):
+            queue["testers"].append(QueuePlayer(member.id, linked_mc))
+            await update_queue_message(self.gamemode)
+            await interaction.response.send_message(
+                f"✅ Beléptél teszterként a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+                ephemeral=True
+            )
+        else:
+            queue["players"].append(QueuePlayer(member.id, linked_mc))
+            await update_queue_message(self.gamemode)
+            await interaction.response.send_message(
+                f"✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba!",
+                ephemeral=True
+            )
 
     @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1986,6 +1998,17 @@ class QueueActionView(discord.ui.View):
         for i, p in enumerate(queue["players"]):
             if p.discord_id == member.id:
                 queue["players"].pop(i)
+                await update_queue_message(self.gamemode)
+                await interaction.response.send_message(
+                    f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
+                    ephemeral=True
+                )
+                return
+
+        # Check testers list
+        for i, t in enumerate(queue.get("testers", [])):
+            if t.discord_id == member.id:
+                queue["testers"].pop(i)
                 await update_queue_message(self.gamemode)
                 await interaction.response.send_message(
                     f"✅ Kiléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ból!",
@@ -2312,12 +2335,22 @@ async def update_queue_message(gamemode: str):
 
     player_text = "\n".join(player_lines) if player_lines else "Még senki nincs a queue-ban."
 
+    # Build testers list
+    tester_lines = []
+    for tester in queue.get("testers", []):
+        member = channel.guild.get_member(tester.discord_id)
+        name = member.display_name if member else tester.minecraft_name
+        tester_lines.append(f"{name} ({tester.minecraft_name})")
+
+    tester_text = "\n".join(tester_lines) if tester_lines else "Még egy teszter sincs a queue-ban."
+
     embed = discord.Embed(
         title=f"🟢 {get_gamemode_display_name(gamemode)} Queue",
-        description=f"Játékosok a queue-ban: **{len(queue['players'])}**",
+        description=f"Játékosok: **{len(queue['players'])}** | Teszterek: **{len(queue.get('testers', []))}**",
         color=discord.Color.green()
     )
     embed.add_field(name="Játékosok", value=player_text, inline=False)
+    embed.add_field(name="Teszterek", value=tester_text, inline=False)
     opener = channel.guild.get_member(queue["opened_by"])
     embed.set_footer(text=f"Nyitotta: {opener.display_name if opener else 'Unknown'}")
 
@@ -2451,6 +2484,7 @@ class QueueOpenButton(discord.ui.Button):
             "opened_by": interaction.user.id,
             "opened_at": time.time(),
             "players": [],
+            "testers": [],
             "called_players": []
         }
 
