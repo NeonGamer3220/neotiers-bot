@@ -132,15 +132,21 @@ async def on_ready():
     try:
         # Print all registered commands
         print(f"DEBUG: Commands registered, ready to sync")
+        print(f"DEBUG: GUILD_ID = {GUILD_ID} (type: {type(GUILD_ID)})")
+        print(f"DEBUG: guild object = {guild}")
         
         if guild:
+            print(f"DEBUG: Syncing to guild {guild.id}...")
             await bot.tree.sync(guild=guild)
-            print(f"Slash commands synced to guild {GUILD_ID}")
+            print(f"✅ Slash commands synced to guild {GUILD_ID}")
         else:
+            print(f"DEBUG: Syncing globally (no guild)...")
             await bot.tree.sync()
-            print("Slash commands synced globally (no GUILD_ID set).")
+            print("✅ Slash commands synced globally")
     except Exception as e:
-        print("Sync failed:", e)
+        import traceback
+        print(f"❌ Sync failed: {e}")
+        traceback.print_exc()
 
 
 @bot.tree.error
