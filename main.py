@@ -80,8 +80,6 @@ from discord.ext import commands
 import aiohttp
 from aiohttp import web
 
-import asyncpg
-
 # Database - Supabase REST Data API (recommended)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
