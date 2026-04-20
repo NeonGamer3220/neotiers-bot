@@ -2788,7 +2788,6 @@ async def refresh_queue_panel(guild):
         await msg.edit(embed=embed, view=QueuePanelView())
     except discord.NotFound:
         # Panel message was deleted, clear tracking
-        global QUEUE_PANEL_MESSAGE
         QUEUE_PANEL_MESSAGE = None
         data = _load_data()
         data["queue_panel_message"] = None
