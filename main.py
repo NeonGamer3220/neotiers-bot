@@ -1585,8 +1585,8 @@ class CloseTicketView(discord.ui.View):
                 owner_id = 0
         if "mode=" in topic:
             try:
-                mode_key = topic.split("mode=")[1].strip()
-            except IndexError:
+                mode_key = topic.split("mode=")[1].split("|")[0].strip()
+            except (ValueError, IndexError):
                 mode_key = ""
 
         set_last_closed(owner_id, mode_key, time.time())
