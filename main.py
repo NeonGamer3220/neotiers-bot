@@ -482,17 +482,29 @@ def get_gamemode_display_name(mode_key: str) -> str:
 # =========================
 def _load_data() -> Dict[str, Any]:
     if not os.path.exists(DATA_FILE):
-        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None}
+        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None, "queue_message_ids": []}
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None}
+        return {"ticket_state": {}, "cooldowns": {}, "queue_panel_message": None, "queue_message_ids": []}
 
 
 def _save_data(data: Dict[str, Any]) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _persist_queue_message_ids():
+    """Save QUEUE_MESSAGE_IDS to data.json"""
+    try:
+        data = _load_data()
+        # Convert to list of [msg_id, gamemode] for JSON
+        ids_list = [[k, v] for k, v in QUEUE_MESSAGE_IDS.items()]
+        data["queue_message_ids"] = ids_list
+        _save_data(data)
+    except Exception as e:
+        print(f"Error persisting queue message IDs: {e}")
 
 
 def get_open_ticket_channel_id(user_id: int, mode_key: str) -> Optional[int]:
@@ -2341,6 +2353,7 @@ class ConfirmCloseQueueView(discord.ui.View):
                         )
                         await msg.edit(embed=embed, view=None)
                         del QUEUE_MESSAGE_IDS[msg_id]
+                        _persist_queue_message_ids()
         except Exception:
             pass
 
@@ -2492,8 +2505,18 @@ async def update_queue_message(gamemode: str):
 
     try:
         message = await channel.fetch_message(msg_id)
+    except discord.NotFound:
+        # Message was deleted, clean up mapping
+        try:
+            del QUEUE_MESSAGE_IDS[msg_id]
+            _persist_queue_message_ids()
+        except KeyError:
+            pass
+        if channel.guild:
+            await refresh_queue_panel(channel.guild)
+        return
     except Exception:
-        # Fetch failed, but still refresh panel if state changed
+        # Fetch failed for other reasons, still refresh panel
         if channel.guild:
             await refresh_queue_panel(channel.guild)
         return
@@ -2507,6 +2530,12 @@ async def update_queue_message(gamemode: str):
         )
         try:
             await message.edit(embed=embed, view=None)
+            # Remove from mapping as it's no longer active
+            try:
+                del QUEUE_MESSAGE_IDS[msg_id]
+                _persist_queue_message_ids()
+            except KeyError:
+                pass
         except Exception:
             pass
         if channel.guild:
@@ -2708,6 +2737,7 @@ class QueueOpenButton(discord.ui.Button):
         view = QueueActionView(mode_key)
         message = await channel.send(content=ping_text, embed=embed, view=view)
         QUEUE_MESSAGE_IDS[message.id] = mode_key
+        _persist_queue_message_ids()
 
         await interaction.followup.send(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
 
@@ -2734,6 +2764,8 @@ async def rebuild_queue_message_ids(guild):
                         break  # Only one active queue per channel
         except Exception as e:
             print(f"Error scanning channel {channel_id} for queue message: {e}")
+    # Persist the rebuilt mapping
+    _persist_queue_message_ids()
 
 
 async def refresh_queue_panel(guild):
@@ -4289,11 +4321,31 @@ async def on_ready():
     except Exception as e:
         print(f"Error loading queue panel message: {e}")
 
-    # Rebuild queue message ID mapping after restart
+    # Load persisted queue message IDs
+    global QUEUE_MESSAGE_IDS
+    try:
+        data = _load_data()
+        raw_ids = data.get("queue_message_ids", [])
+        loaded = {}
+        for entry in raw_ids:
+            if isinstance(entry, list) and len(entry) == 2:
+                try:
+                    msg_id = int(entry[0])
+                    gamemode = entry[1]
+                    loaded[msg_id] = gamemode
+                except (ValueError, TypeError):
+                    continue
+        QUEUE_MESSAGE_IDS = loaded
+    except Exception as e:
+        print(f"Error loading queue message IDs: {e}")
+
+    # Rebuild queue message ID mapping after restart (in case persisted data is stale)
     if GUILD_ID:
         guild = bot.get_guild(GUILD_ID)
         if guild:
             await rebuild_queue_message_ids(guild)
+            # After rebuilding, persist the fresh mapping
+            _persist_queue_message_ids()
 
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
