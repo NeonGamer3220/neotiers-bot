@@ -1235,11 +1235,11 @@ def can_open_ticket(rank: str) -> bool:
 
 def can_join_queue(rank: str) -> bool:
     """
-    Can join queue if rank is between LT5 and HT4 (inclusive).
-    That's points between 1-4 inclusive.
+    Can join queue if rank is between LT5 and HT4 (inclusive), or Unranked.
+    That's points 0-4 inclusive (Unranked=0, LT5=1, HT5=2, LT4=3, HT4=4).
     """
     pts = get_rank_value_min(rank)
-    return 1 <= pts <= 4  # LT5=1, HT5=2, LT4=3, HT4=4
+    return pts <= 4  # Unranked(0), LT5(1), HT5(2), LT4(3), HT4=4 all allowed
 
 
 # =========================
