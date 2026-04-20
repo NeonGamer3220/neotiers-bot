@@ -819,10 +819,10 @@ async def update_queue_message(gamemode: str):
 
 
 # =========================
-# COMMANDS
+# COMMANDS - using bot.tree.command directly
 # =========================
 
-@app_commands.command(name="queuepanel", description="Queue panel uzenet kirakasa (teszteloknek)")
+@bot.tree.command(name="queuepanel", description="Queue panel uzenet kirakasa")
 async def queuepanel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -841,7 +841,7 @@ async def queuepanel(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@app_commands.command(name="closequeue", description="Queue zarasa")
+@bot.tree.command(name="closequeue", description="Queue zarasa")
 async def closequeue(interaction: discord.Interaction, jatekmod: str):
     await interaction.response.defer(ephemeral=True)
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -860,7 +860,7 @@ async def closequeue(interaction: discord.Interaction, jatekmod: str):
     await interaction.followup.send(f"A {jatekmod} queue zarva.", ephemeral=True)
 
 
-@app_commands.command(name="tests", description="Teszteloi statisztikak")
+@bot.tree.command(name="tests", description="Teszteloi statisztikak")
 async def tests(interaction: discord.Interaction):
     await interaction.response.defer()
     if not WEBSITE_URL:
@@ -891,7 +891,7 @@ async def tests(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
-@app_commands.command(name="testresult", description="Minecraft tier teszt eredmeny")
+@bot.tree.command(name="testresult", description="Minecraft tier teszt eredmeny")
 async def testresult(interaction: discord.Interaction, jatekos: str, jatekmod: str, tier: str):
     await interaction.response.defer()
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -971,7 +971,7 @@ async def testresult(interaction: discord.Interaction, jatekos: str, jatekmod: s
         set_last_closed(interaction.user.id, mode_key, time.time())
 
 
-@app_commands.command(name="cooldown", description="Megnezed a cooldownidat egy jatekmodban")
+@bot.tree.command(name="cooldown", description="Megnezed a cooldownidat egy jatekmodban")
 async def cooldown(interaction: discord.Interaction, jatekmod: str = None, jatekos: discord.Member = None):
     await interaction.response.defer(ephemeral=True)
     target = jatekos or interaction.user
@@ -995,7 +995,7 @@ async def cooldown(interaction: discord.Interaction, jatekmod: str = None, jatek
             await interaction.followup.send("Nincs cooldownod sehol.", ephemeral=True)
 
 
-@app_commands.command(name="profile", description="Megnezed egy jatekos tierjeit a tierlistarol")
+@bot.tree.command(name="profile", description="Megnezed egy jatekos tierjeit a tierlistarol")
 async def profile(interaction: discord.Interaction, jatekos: str = None):
     await interaction.response.defer()
     if not WEBSITE_URL:
@@ -1033,7 +1033,7 @@ async def profile(interaction: discord.Interaction, jatekos: str = None):
     await interaction.followup.send(embed=embed)
 
 
-@app_commands.command(name="link", description="Osszekapcsolod a Minecraft fiokodat a Discord fiokoddal")
+@bot.tree.command(name="link", description="Osszekapcsolod a Minecraft fiokodat a Discord fiokoddal")
 async def link(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     code = await generate_link_code_async(interaction.user.id)
@@ -1044,7 +1044,7 @@ async def link(interaction: discord.Interaction):
     )
 
 
-@app_commands.command(name="unlink", description="Levallasztod a Minecraft fiokodat a Discord fiokodrol")
+@bot.tree.command(name="unlink", description="Levallasztod a Minecraft fiokodat a Discord fiokodrol")
 async def unlink(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     success = await unlink_minecraft_account_async(interaction.user.id)
@@ -1054,7 +1054,7 @@ async def unlink(interaction: discord.Interaction):
         await interaction.followup.send("Hiba tortent.", ephemeral=True)
 
 
-@app_commands.command(name="mylink", description="Megnezed az osszekapcsolt Minecraft fiokodat")
+@bot.tree.command(name="mylink", description="Megnezed az osszekapcsolt Minecraft fiokodat")
 async def mylink(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     mc = await get_linked_minecraft_name_async(interaction.user.id)
@@ -1064,7 +1064,7 @@ async def mylink(interaction: discord.Interaction):
         await interaction.followup.send("Nincs osszekapcsolva a Minecraft fiokod. Hasznald a `/link` parancsot.", ephemeral=True)
 
 
-@app_commands.command(name="tierlistban", description="Jatekos kitiltasa a tesztelesbol (admin)")
+@bot.tree.command(name="tierlistban", description="Jatekos kitiltasa a tesztelesbol (admin)")
 async def tierlistban(interaction: discord.Interaction, jatekos: str, indok: str = ""):
     await interaction.response.defer(ephemeral=True)
     if not is_staff_member(interaction.user):
@@ -1082,7 +1082,7 @@ async def tierlistban(interaction: discord.Interaction, jatekos: str, indok: str
         await interaction.followup.send("Hiba tortent.", ephemeral=True)
 
 
-@app_commands.command(name="tierlistunban", description="Jatekos visszavetele a tesztelesbe (admin)")
+@bot.tree.command(name="tierlistunban", description="Jatekos visszavetele a tesztelesbe (admin)")
 async def tierlistunban(interaction: discord.Interaction, jatekos: str):
     await interaction.response.defer(ephemeral=True)
     if not is_staff_member(interaction.user):
@@ -1100,7 +1100,7 @@ async def tierlistunban(interaction: discord.Interaction, jatekos: str):
         await interaction.followup.send("Hiba tortent.", ephemeral=True)
 
 
-@app_commands.command(name="removetierlist", description="Jatekos eltavolitasa a tierlistarol (admin)")
+@bot.tree.command(name="removetierlist", description="Jatekos eltavolitasa a tierlistarol (admin)")
 async def removetierlist(interaction: discord.Interaction, jatekos: str, jatekmod: str = None):
     await interaction.response.defer(ephemeral=True)
     if not is_staff_member(interaction.user):
@@ -1131,9 +1131,10 @@ async def tier_autocomplete(interaction: discord.Interaction, current: str):
     return [app_commands.Choice(name=r, value=r) for r in matches[:25]]
 
 
-testresult._params["jatekmod"].autocomplete = gamemode_autocomplete
-testresult._params["tier"].autocomplete = tier_autocomplete
-cooldown._params["jatekmod"].autocomplete = gamemode_autocomplete
+# Add autocomplete after commands are defined
+# testresult._params["jatekmod"].autocomplete = gamemode_autocomplete
+# testresult._params["tier"].autocomplete = tier_autocomplete
+# cooldown._params["jatekmod"].autocomplete = gamemode_autocomplete
 
 
 # =========================
@@ -1191,21 +1192,8 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
 
-    # Add commands to tree
-    bot.tree.add_command(queuepanel)
-    bot.tree.add_command(closequeue)
-    bot.tree.add_command(tests)
-    bot.tree.add_command(testresult)
-    bot.tree.add_command(cooldown)
-    bot.tree.add_command(profile)
-    bot.tree.add_command(link)
-    bot.tree.add_command(unlink)
-    bot.tree.add_command(mylink)
-    bot.tree.add_command(tierlistban)
-    bot.tree.add_command(tierlistunban)
-    bot.tree.add_command(removetierlist)
-    
-    print(f"Commands added: {len(bot.tree._global_commands)}")
+    # Print registered commands
+    print(f"Registered commands: {len(bot.tree._global_commands)}")
     for cmd in bot.tree._global_commands:
         print(f"  - /{cmd.name}")
 
