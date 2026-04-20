@@ -1173,6 +1173,12 @@ http_session: Optional[aiohttp.ClientSession] = None
 # HEALTH SERVER (Railway)
 # =========================
 async def start_health_server():
+    global http_session
+    
+    # Ensure http_session is available
+    if http_session is None:
+        http_session = aiohttp.ClientSession()
+    
     app = web.Application()
 
     async def health(_request):
@@ -1194,6 +1200,11 @@ async def start_health_server():
 
         if discord_id is None:
             return web.json_response({"success": False, "error": "Invalid or expired code"}, status=400)
+
+        # Ensure http_session is available for linking
+        global http_session
+        if http_session is None:
+            http_session = aiohttp.ClientSession()
 
         # Link the Minecraft account to the Discord account
         await link_minecraft_account_async(discord_id, minecraft_name)
@@ -4072,9 +4083,10 @@ async def main():
     # Initialize database
     await init_db()
 
+    # Initialize http_session BEFORE starting health server
     http_session = aiohttp.ClientSession()
 
-    # health server
+    # health server - must start AFTER http_session is ready
     asyncio.create_task(start_health_server())
 
     # queue maintenance task
