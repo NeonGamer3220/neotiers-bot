@@ -2469,8 +2469,12 @@ class QueueOpenButton(discord.ui.Button):
         embed.add_field(name="Játékosok (0)", value="Még senki nincs a queue-ban.", inline=False)
         embed.set_footer(text=f"Nyitotta: {interaction.user.display_name}")
 
+        # Get ping role for this gamemode
+        ping_role_id = QUEUE_PING_ROLES.get(mode_key)
+        ping_text = f"<@&{ping_role_id}> " if ping_role_id else ""
+
         view = QueueActionView(mode_key)
-        message = await channel.send(embed=embed, view=view)
+        message = await channel.send(content=ping_text, embed=embed, view=view)
         QUEUE_MESSAGE_IDS[message.id] = mode_key
 
         await interaction.followup.send(f"✅ **{mode_display}** queue megnyitva!", ephemeral=True)
@@ -2478,14 +2482,11 @@ class QueueOpenButton(discord.ui.Button):
 
 @app_commands.command(name="queuepanel", description="Queue panel kirakása")
 async def queuepanel(interaction: discord.Interaction):
-    """Open queue panel"""
+    """Open queue panel - available for everyone"""
     await interaction.response.defer(ephemeral=True)
     
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
         await interaction.followup.send("Hiba.", ephemeral=True)
-        return
-    if not is_staff_member(interaction.user):
-        await interaction.followup.send("Nincs jogod.", ephemeral=True)
         return
 
     lines = []
