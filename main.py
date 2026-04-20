@@ -1192,6 +1192,14 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(CloseTicketView(owner_id=0, mode_key=""))
 
+    # DEBUG: Print all registered commands
+    print(f"DEBUG: Registered commands: {len(bot.tree._global_commands)} global, {len(bot.tree._guild_commands)} guild")
+    for cmd in bot.tree._global_commands:
+        print(f"  - /{cmd.name} (global)")
+    for guild_id, cmds in bot.tree._guild_commands.items():
+        for cmd in cmds:
+            print(f"  - /{cmd.name} (guild {guild_id})")
+
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
     try:
@@ -1202,7 +1210,9 @@ async def on_ready():
             await bot.tree.sync()
             print("Slash commands synced globally")
     except Exception as e:
+        import traceback
         print(f"Sync failed: {e}")
+        traceback.print_exc()
 
 
 @bot.tree.error
