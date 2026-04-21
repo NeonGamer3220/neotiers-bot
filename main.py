@@ -443,6 +443,32 @@ GAMEMODE_COLORS = {
     "spearelytra": 0x2980b9,   # Dark Blue
 }
 
+GAMEMODE_INDICATORS = {
+    "mace": "⚫",
+    "sword": "🔵",
+    "vanilla": "🟣",
+    "uhc": "🟠",
+    "pot": "🔴",
+    "nethpot": "🔴",
+    "smp": "🟢",
+    "axe": "🟤",
+    "cart": "🟡",
+    "creeper": "🟢",
+    "diasmp": "🔵",
+    "ogvanilla": "🟣",
+    "shieldlessuhc": "🟠",
+    "spearmace": "🟢",
+    "spearelytra": "🔵",
+}
+
+
+def get_gamemode_indicator(mode_key: str, is_open: bool = True) -> str:
+    """Get the color indicator emoji for a gamemode"""
+    if is_open:
+        return GAMEMODE_INDICATORS.get(mode_key.lower().strip(), "🟢")
+    else:
+        return "🔴"
+
 
 def get_gamemode_color(mode_key: str) -> discord.Color:
     """Get the color for a gamemode"""
@@ -2305,7 +2331,7 @@ class ConfirmCloseQueueView(discord.ui.View):
                     if channel:
                         msg = await channel.fetch_message(msg_id)
                         embed = discord.Embed(
-                            title=f"🔴 {get_gamemode_display_name(self.gamemode)} Queue",
+                            title=f"{get_gamemode_indicator(self.gamemode, False)} {get_gamemode_display_name(self.gamemode)} Queue",
                             description="A queue zárva van.",
                             color=get_gamemode_color(self.gamemode)
                         )
@@ -2482,7 +2508,7 @@ async def update_queue_message(gamemode: str):
     queue = ACTIVE_QUEUES.get(gamemode)
     if not queue:
         embed = discord.Embed(
-            title=f"🔴 {get_gamemode_display_name(gamemode)} Queue",
+            title=f"{get_gamemode_indicator(gamemode, False)} {get_gamemode_display_name(gamemode)} Queue",
             description="A queue zárva van.",
             color=get_gamemode_color(gamemode)
         )
@@ -2518,7 +2544,7 @@ async def update_queue_message(gamemode: str):
     tester_text = "\n".join(tester_lines) if tester_lines else "Még egy teszter sincs a queue-ban."
 
     embed = discord.Embed(
-        title=f"🟢 {get_gamemode_display_name(gamemode)} Queue",
+        title=f"{get_gamemode_indicator(gamemode)} {get_gamemode_display_name(gamemode)} Queue",
         description=f"Játékosok: **{len(queue['players'])}** | Teszterek: **{len(queue.get('testers', []))}**",
         color=get_gamemode_color(gamemode)
     )
@@ -2671,7 +2697,7 @@ class QueueOpenButton(discord.ui.Button):
             return
 
         embed = discord.Embed(
-            title=f"🟢 {mode_display} Queue",
+            title=f"{get_gamemode_indicator(mode_key)} {mode_display} Queue",
             description="A queue nyitva van! Kattints a gombokhoz alább.",
             color=get_gamemode_color(mode_key)
         )
