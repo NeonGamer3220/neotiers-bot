@@ -477,6 +477,35 @@ def get_gamemode_display_name(mode_key: str) -> str:
     return GAMEMODE_DISPLAY_NAMES.get(mode_key.lower().strip(), mode_key)
 
 
+GAMEMODE_COLORS = {
+    "mace": 0x808080,        # Grey
+    "sword": 0x3498db,      # Blue
+    "vanilla": 0x9b59b6,    # Purple
+    "uhc": 0xe67e22,       # Orange
+    "pot": 0xe74c3c,       # Red
+    "nethpot": 0xc0392b,    # Dark Red
+    "smp": 0x2ecc71,       # Green
+    "axe": 0x8b4513,       # Brown
+    "cart": 0xf1c40f,      # Yellow
+    "creeper": 0x27ae60,   # Dark Green
+    "diasmp": 0x1abc9c,    # Teal
+    "ogvanilla": 0x8e44ad, # Dark Purple
+    "shieldlessuhc": 0xd35400,  # Dark Orange
+    "spearmace": 0x16a085,    # Dark Teal
+    "spearelytra": 0x2980b9,   # Dark Blue
+}
+
+
+def get_gamemode_color(mode_key: str) -> discord.Color:
+    """Get the color for a gamemode"""
+    if not mode_key:
+        return discord.Color.default()
+    color_val = GAMEMODE_COLORS.get(mode_key.lower().strip())
+    if color_val is not None:
+        return discord.Color(value=color_val)
+    return discord.Color.default()
+
+
 # =========================
 # STORAGE
 # =========================
@@ -2526,7 +2555,7 @@ async def update_queue_message(gamemode: str):
         embed = discord.Embed(
             title=f"🔴 {get_gamemode_display_name(gamemode)} Queue",
             description="A queue zárva van.",
-            color=discord.Color.red()
+            color=get_gamemode_color(gamemode)
         )
         try:
             await message.edit(embed=embed, view=None)
@@ -2562,12 +2591,10 @@ async def update_queue_message(gamemode: str):
     embed = discord.Embed(
         title=f"🟢 {get_gamemode_display_name(gamemode)} Queue",
         description=f"Játékosok: **{len(queue['players'])}** | Teszterek: **{len(queue.get('testers', []))}**",
-        color=discord.Color.green()
+        color=get_gamemode_color(gamemode)
     )
     embed.add_field(name="Játékosok", value=player_text, inline=False)
     embed.add_field(name="Teszterek", value=tester_text, inline=False)
-    opener = channel.guild.get_member(queue["opened_by"])
-    embed.set_footer(text=f"Nyitotta: {opener.display_name if opener else 'Unknown'}")
 
     view = QueueActionView(gamemode)
     try:
