@@ -3175,7 +3175,7 @@ async def profile(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
-@app_commands.command(name="porog", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
+@app_commands.command(name="spin", description="Kiválaszt egy véletlenszerű játékost a megadott gamemodból és tierből.")
 @app_commands.describe(
     gamemode="A játékmód (pl. sword, pot, smp)",
     tier="A tier (pl. ht3, lt1)",
@@ -3185,7 +3185,7 @@ async def profile(interaction: discord.Interaction, name: str):
     gamemode=_choices_from_list(MODE_LIST),
     tier=_choices_from_list(RANKS)
 )
-async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[str], tier: app_commands.Choice[str], sajat: bool = False):
+async def spin(interaction: discord.Interaction, gamemode: app_commands.Choice[str], tier: app_commands.Choice[str], sajat: bool = False):
     await interaction.response.defer(ephemeral=False)
 
     try:
@@ -3228,32 +3228,14 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
             username = player.get("username")
             rank = player.get("rank")
 
-            # April Fools' funny porog embed
-            if False:
-                funny_titles = [
-                    "🎪 Cirkuszi sorsolás",
-                    "🤡 Bohóc sorsolás",
-                    "🎭 Színházi sorsolás",
-                    "🃏 Kártya sorsolás",
-                ]
-                title = random.choice(funny_titles)
-                display_rank = get_funny_rank(rank)
-            else:
-                title = "🎲 Sorsolt játékos"
-                display_rank = rank
-
             embed = discord.Embed(
-                title=title,
-                description=f"**{username}** ({display_rank})",
+                title="🎲 Sorsolt játékos",
+                description=f"**{username}** ({rank})",
                 color=discord.Color.gold()
             )
 
             skin_url = f"https://minotar.net/helm/{username}/128.png"
             embed.set_thumbnail(url=skin_url)
-
-            # Add April Fools' message
-            if False and random.random() < 0.3:
-                embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
             await interaction.followup.send(embed=embed)
 
@@ -4309,7 +4291,7 @@ async def main():
         bot.tree.add_command(testresult, guild=g)
         bot.tree.add_command(tierlistnamechange, guild=g)
         bot.tree.add_command(profile, guild=g)
-        bot.tree.add_command(porog, guild=g)
+        bot.tree.add_command(spin, guild=g)
         bot.tree.add_command(retire, guild=g)
         bot.tree.add_command(unretire, guild=g)
         bot.tree.add_command(tierlistban, guild=g)
@@ -4328,7 +4310,7 @@ async def main():
         bot.tree.add_command(testresult)
         bot.tree.add_command(tierlistnamechange)
         bot.tree.add_command(profile)
-        bot.tree.add_command(porog)
+        bot.tree.add_command(spin)
         bot.tree.add_command(retire)
         bot.tree.add_command(unretire)
         bot.tree.add_command(tierlistban)
