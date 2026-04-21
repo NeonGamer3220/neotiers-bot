@@ -2831,6 +2831,63 @@ async def pingpanel(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="closequeue", description="Bezár egy queue-t (staff vagy queue nyitó)")
+@app_commands.describe(
+    gamemode="A queue gamemódja"
+)
+@app_commands.choices(
+    gamemode=_choices_from_list(MODE_LIST)
+)
+async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
+    """Close a queue by gamemode"""
+    await interaction.response.defer(ephemeral=True)
+    
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        await interaction.followup.send("Hiba.", ephemeral=True)
+        return
+    
+    mode_key = gamemode.value.lower()
+    queue = ACTIVE_QUEUES.get(mode_key)
+    
+    if not queue:
+        await interaction.followup.send(f"❌ A **{gamemode.name}** queue nincs nyitva.", ephemeral=True)
+        return
+    
+    # Check permission: staff or the person who opened it
+    if queue.get("opened_by") != interaction.user.id and not is_staff_member(interaction.user):
+        await interaction.followup.send("❌ Csak a queue-t megnyitó tesztelő vagy staff zárhatja be.", ephemeral=True)
+        return
+    
+    del ACTIVE_QUEUES[mode_key]
+    await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva.", ephemeral=True)
+    
+    await refresh_queue_panel(interaction.guild)
+    
+    # Update queue message in channel
+    try:
+        msg_id = None
+        for mid, gm in list(QUEUE_MESSAGE_IDS.items()):
+            if gm == mode_key:
+                msg_id = mid
+                break
+        if msg_id:
+            channel_id = QUEUE_CHANNELS.get(mode_key)
+            if channel_id:
+                channel = interaction.guild.get_channel(channel_id)
+                if channel and isinstance(channel, discord.TextChannel):
+                    msg = await channel.fetch_message(msg_id)
+                    embed = discord.Embed(
+                        title=f"{get_gamemode_indicator(mode_key, False)} {get_gamemode_display_name(mode_key)} Queue",
+                        description="A queue zárva van.",
+                        color=get_gamemode_color(mode_key)
+                    )
+                    await msg.edit(embed=embed, view=None)
+                    del QUEUE_MESSAGE_IDS[msg_id]
+                    _persist_queue_message_ids()
+    except Exception as e:
+        print(f"Error updating queue message on close: {e}")
+
+
 @app_commands.command(name="testresult", description="Minecraft tier teszt eredmény embed + weboldal mentés.")
 @app_commands.describe(
     username="Minecraft név (ebből lesz a skin a weboldalon)",
@@ -4327,6 +4384,7 @@ async def main():
         bot.tree.add_command(bulkimport, guild=g)
         bot.tree.add_command(queuepanel, guild=g)
         bot.tree.add_command(pingpanel, guild=g)
+        bot.tree.add_command(closequeue, guild=g)
         bot.tree.add_command(link, guild=g)
         bot.tree.add_command(unlink, guild=g)
         bot.tree.add_command(mylink, guild=g)
@@ -4346,6 +4404,7 @@ async def main():
         bot.tree.add_command(bulkimport)
         bot.tree.add_command(queuepanel)
         bot.tree.add_command(pingpanel)
+        bot.tree.add_command(closequeue)
         bot.tree.add_command(link)
         bot.tree.add_command(unlink)
         bot.tree.add_command(mylink)
