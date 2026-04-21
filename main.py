@@ -80,6 +80,12 @@ from discord.ext import commands
 import aiohttp
 from aiohttp import web
 
+# Optional asyncpg for direct PostgreSQL connections
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
+
 # Database - Supabase REST Data API (recommended)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
@@ -98,7 +104,8 @@ if USE_SUPABASE_API:
     print(f"Supabase URL: {SUPABASE_URL}")
 print(f"DATABASE_URL present: {bool(DATABASE_URL)}")
 
-db_pool: Optional[asyncpg.Pool] = None
+# Database pool for direct PostgreSQL (only used when not using Supabase REST API)
+db_pool = None
 supabase_headers: Dict[str, str] = {}
 
 async def init_db():
