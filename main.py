@@ -2083,6 +2083,18 @@ class QueueActionView(discord.ui.View):
             )
             return
 
+        # Cooldown check: prevent users with active cooldown from joining queue
+        cd_left = cooldown_left(member.id, gamemode)
+        if cd_left > 0:
+            days = cd_left // (24 * 60 * 60)
+            hours = (cd_left % (24 * 60 * 60)) // (60 * 60)
+            await interaction.response.send_message(
+                f"❌ Még **{days} nap {hours} óra** cooldown van hátra a **{get_gamemode_display_name(gamemode)}** módban. "
+                f"Várj a cooldown lejártáig, mielőtt újra queue-hoz csatlakozol.",
+                ephemeral=True
+            )
+            return
+
         # Check if user is a tester for THIS specific gamemode (or admin/debug)
         if is_gamemode_tester_or_admin(member, gamemode):
             queue["testers"].append(QueuePlayer(member.id, linked_mc))
