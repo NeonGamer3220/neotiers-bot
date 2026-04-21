@@ -1312,33 +1312,14 @@ async def start_health_server():
         try:
             user = await bot.fetch_user(discord_id)
             if user:
-                # April Fools' funny link confirmation
-                if False:
-                    funny_titles = [
-                        "🎪 Cirkuszi összekapcsolás sikeres!",
-                        "🤡 Bohóc összekapcsolás sikeres!",
-                        "🎭 Színházi összekapcsolás sikeres!",
-                        "🃏 Kártya összekapcsolás sikeres!",
-                    ]
-                    title = random.choice(funny_titles)
-                    funny_footer = random.choice([
-                        "Most már használhatod a cirkuszt!",
-                        "Most már használhatod a bohócot!",
-                        "Most már használhatod a színházat!",
-                        "Most már használhatod a kártyákat!",
-                    ])
-                else:
-                    title = "✅ Összekapcsolás sikeres!"
-                    funny_footer = "Most már használhatod a tierlistát!"
-
                 embed = discord.Embed(
-                    title=title,
+                    title="✅ Összekapcsolás sikeres!",
                     description=f"A Discord fiókod össze lett kapcsolva a **Minecraft** fiókkal!\n\n"
                                f"**Minecraft név:** `{minecraft_name}`\n"
                                f"**Összekapcsolva:** Örökre!",
                     color=discord.Color.green()
                 )
-                embed.set_footer(text=funny_footer)
+                embed.set_footer(text="Most már használhatod a tierlistát!")
                 await user.send(embed=embed)
         except Exception as e:
             print(f"Could not send DM to user: {e}")
@@ -2602,10 +2583,6 @@ async def ticketpanel(interaction: discord.Interaction):
             color=discord.Color.blurple()
         )
 
-        # Add April Fools' message to footer
-        if False:
-            embed.set_footer(text=get_april_fools_message())
-
         await interaction.channel.send(embed=embed, view=TicketPanelView())
         await interaction.followup.send("✅ Ticket panel kirakva.", ephemeral=True)
 
@@ -2703,7 +2680,6 @@ class QueueOpenButton(discord.ui.Button):
         linked_mc = get_linked_minecraft_name(interaction.user.id) or "TESZTER"
         tester_name = interaction.user.display_name
         embed.add_field(name="Teszterek", value=f"{tester_name} ({linked_mc})", inline=False)
-        embed.set_footer(text=f"Nyitotta: {interaction.user.display_name}")
 
         # Get ping role for this gamemode
         ping_role_id = QUEUE_PING_ROLES.get(mode_key)
@@ -3965,12 +3941,7 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
                 mode_cooldowns.append(f"\n🌐 **Globális cooldown**: {days} nap {hours} óra")
 
         embed.description = "\n".join(mode_cooldowns)
-
-        # April Fools' footer
-        if False:
-            embed.set_footer(text=f"Cooldown időtartam: 14 nap | 🎪 {get_april_fools_message()}")
-        else:
-            embed.set_footer(text=f"Cooldown időtartam: 14 nap")
+        embed.set_footer(text=f"Cooldown időtartam: 14 nap")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
