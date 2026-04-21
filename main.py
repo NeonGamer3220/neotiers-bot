@@ -2754,16 +2754,13 @@ async def refresh_queue_panel(guild):
         return
     try:
         msg = await channel.fetch_message(msg_id)
-        lines = []
-        for label, key, _rid in TICKET_TYPES:
-            lines.append(f"**{label}**")
         embed = discord.Embed(
             title="Queue nyitás",
-            description="\n".join(lines),
+            description="Kattints a gombra a queue megnyitásához.",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="Információk", value="Kattints a gombra a queue megnyitásához.", inline=False)
-        embed.add_field(name="Gombok", value="Modal - Queue kezeléshez", inline=False)
+        embed.add_field(name="Információk", value="Válaszd ki a gamemodet és nyomd meg a gombot.", inline=False)
+        embed.add_field(name="Gombok", value="Queue kezeléshez", inline=False)
         await msg.edit(embed=embed, view=QueuePanelView())
     except discord.NotFound:
         QUEUE_PANEL_MESSAGE = None
@@ -2789,17 +2786,13 @@ async def queuepanel(interaction: discord.Interaction):
     # Send to the channel where command was used - visible for everyone!
     channel = interaction.channel
     
-    lines = []
-    for label, key, _rid in TICKET_TYPES:
-        lines.append(f"**{label}**")
-
     embed = discord.Embed(
         title="Queue nyitás",
-        description="\n".join(lines),
+        description="Kattints a gombra a queue megnyitásához.",
         color=discord.Color.blurple()
     )
-    embed.add_field(name="Információk", value="Kattints a gombra a queue megnyitásához.", inline=False)
-    embed.add_field(name="Gombok", value="Modal - Queue kezeléshez", inline=False)
+    embed.add_field(name="Információk", value="Válaszd ki a gamemodet és nyomd meg a gombot.", inline=False)
+    embed.add_field(name="Gombok", value="Queue kezeléshez", inline=False)
     
     # Send to channel - NOT ephemeral, visible for everyone
     message = await channel.send(embed=embed, view=QueuePanelView())
@@ -2811,7 +2804,6 @@ async def queuepanel(interaction: discord.Interaction):
     data["queue_panel_message"] = [channel.id, message.id]
     _save_data(data)
     
-    await interaction.response.send_message("✅ Panel elküldve!", ephemeral=True)
     await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
 
 
