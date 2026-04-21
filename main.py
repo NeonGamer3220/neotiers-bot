@@ -2307,7 +2307,7 @@ class ConfirmCloseQueueView(discord.ui.View):
                         embed = discord.Embed(
                             title=f"🔴 {get_gamemode_display_name(self.gamemode)} Queue",
                             description="A queue zárva van.",
-                            color=discord.Color.red()
+                            color=get_gamemode_color(self.gamemode)
                         )
                         await msg.edit(embed=embed, view=None)
                         del QUEUE_MESSAGE_IDS[msg_id]
@@ -2673,7 +2673,7 @@ class QueueOpenButton(discord.ui.Button):
         embed = discord.Embed(
             title=f"🟢 {mode_display} Queue",
             description="A queue nyitva van! Kattints a gombokhoz alább.",
-            color=discord.Color.green()
+            color=get_gamemode_color(mode_key)
         )
         embed.add_field(name="Játékosok", value="Még senki nincs a queue-ban.", inline=False)
         # Show opening tester
