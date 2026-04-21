@@ -3755,7 +3755,7 @@ async def bulkimport(interaction: discord.Interaction, file: discord.Attachment)
     result_msg = f"✅ Sikeres import: {success_count}\n❌ Sikertelen: {error_count}"
     if errors:
         result_msg += "\n\nHibák:\n" + "\n".join(errors[:10])
-if len(errors) > 10:
+        if len(errors) > 10:
             result_msg += f"\n... és még {len(errors) - 10} hiba"
 
     await interaction.followup.send(result_msg, ephemeral=True)
