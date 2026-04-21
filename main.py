@@ -7,65 +7,6 @@ import random
 import string
 from typing import Dict, Any, Optional, List
 
-# =========================
-# APRIL FOOLS' DAY MODE 🎉
-# =========================
-APRIL_FOOLS_MODE = False  # Set to False to disable April Fools' effects
-
-APRIL_FOOLS_MESSAGES = [
-    "🤡 APRILIS BOLONDOK! 🤡",
-    "🎪 A tierlist ma egy cirkusz! 🎪",
-    "🎭 Ez csak egy vicc, ugye? 🎭",
-    "🃏 A rangod: ULTRA BOLOND! 🃏",
-    "🎪 Ma mindenki HT1! (nem) 🎪",
-    "🤡 A bot ma részeg! 🤡",
-    "🎭 Áprilisi tréfa! 🎭",
-    "🎪 A tierlist fordítva működik! 🎪",
-    "🃏 A tesztelők ma bolondok! 🃏",
-    "🤡 Ez nem valódi eredmény! 🤡",
-]
-
-GLITCH_CHARS = ["̸", "̴", "̵", "̶", "̷", "̸", "̨", "̧", "̢", "̛", "̤", "̥", "̦", "̩", "̪", "̫", "̬", "̭", "̮", "̯", "̰", "̱", "̲", "̳", "̴", "̵", "̶", "̷", "̸", "̹", "̺", "̻", "̼", "̽", "̾", "̿", "̀", "́", "̓", "̈́", "ͅ", "͆", "͇", "͈", "͉", "͊", "͋", "͌", "͍", "͎", "͏", "͐", "͑", "͒", "͓", "͔", "͕", "͖", "͗", "͘", "͙", "͚", "͛", "͜", "͝", "͞", "͟", "͠", "͡", "͢", "ͣ", "ͤ", "ͥ", "ͦ", "ͧ", "ͨ", "ͩ", "ͪ", "ͫ", "ͬ", "ͭ", "ͮ", "ͯ"]
-
-def add_glitch(text: str, intensity: float = 0.3) -> str:
-    """Add random glitch characters to text for April Fools' effect"""
-    if not APRIL_FOOLS_MODE:
-        return text
-    result = ""
-    for char in text:
-        result += char
-        if random.random() < intensity:
-            result += random.choice(GLITCH_CHARS)
-    return result
-
-def get_april_fools_message() -> str:
-    """Get a random April Fools' message"""
-    if not APRIL_FOOLS_MODE:
-        return ""
-    return random.choice(APRIL_FOOLS_MESSAGES)
-
-def get_funny_rank(rank: str) -> str:
-    """Get a funny/messed up version of a rank for April Fools'"""
-    if not APRIL_FOOLS_MODE:
-        return rank
-    funny_ranks = {
-        "Unranked": "🤡 BOLOND",
-        "LT5": "🎪 Cirkuszi bohóc",
-        "HT5": "🃏 Kártya trükk",
-        "LT4": "🎭 Színházi színész",
-        "HT4": "🤡 Profi bohóc",
-        "LT3": "🎪 Cirkuszi igazgató",
-        "HT3": "🃏 Mágus",
-        "LT2": "🎭 Rendező",
-        "HT2": "🤡 Főbohóc",
-        "LT1": "🎪 Cirkusz tulajdonos",
-        "HT1": "🃏 ULTRA BOLOND",
-    }
-    return funny_ranks.get(rank, f"🤡 {rank} (ma bolond)")
-
-def should_april_fools_glitch() -> bool:
-    """Randomly decide if we should add April Fools' glitch effects"""
-    return APRIL_FOOLS_MODE and random.random() < 0.15  # 15% chance
 
 def truncate_message(text: str, max_length: int = 1900) -> str:
     """Truncate a message to fit Discord's 2000 character limit with safety margin"""
@@ -1372,7 +1313,7 @@ async def start_health_server():
             user = await bot.fetch_user(discord_id)
             if user:
                 # April Fools' funny link confirmation
-                if APRIL_FOOLS_MODE:
+                if False:
                     funny_titles = [
                         "🎪 Cirkuszi összekapcsolás sikeres!",
                         "🤡 Bohóc összekapcsolás sikeres!",
@@ -1792,8 +1733,8 @@ class TierSelect(discord.ui.Select):
         # April Fools' effects
         display_mc = add_glitch(linked_minecraft) if should_april_fools_glitch() else linked_minecraft
         display_mode = add_glitch(mode_label) if should_april_fools_glitch() else mode_label
-        display_prev_rank = get_funny_rank(prev_rank) if APRIL_FOOLS_MODE else prev_rank
-        display_selected_tier = get_funny_rank(selected_tier) if APRIL_FOOLS_MODE else selected_tier
+        display_prev_rank = prev_rank
+        display_selected_tier = selected_tier
 
         embed = discord.Embed(
             title=f"{display_mc} teszt eredménye 🏆",
@@ -1808,7 +1749,7 @@ class TierSelect(discord.ui.Select):
         embed.add_field(name="Pontok:", value=points_str, inline=False)
 
         # Add random April Fools' message
-        if APRIL_FOOLS_MODE and random.random() < 0.3:
+        if False and random.random() < 0.3:
             embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
         # Send to the test results channel
@@ -1891,7 +1832,7 @@ class TicketButton(discord.ui.Button):
             return
 
         # April Fools' 5% chance to open ticket
-        if APRIL_FOOLS_MODE:
+        if False:
             if random.random() > 0.05:  # 95% chance to fail
                 funny_fail_messages = [
                     "🎪 A cirkusz ma zárva! Próbáld újra! 🎪",
@@ -2015,7 +1956,7 @@ class TicketButton(discord.ui.Button):
         rounds_display = get_ticket_rounds_display(self.mode_key)
 
         # April Fools' funny ticket embed
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_descriptions = [
                 "🎪 A cirkusz megnyitotta kapuit! 🎪",
                 "🤡 A bohóc várja a jelentkezésedet! 🤡",
@@ -2035,14 +1976,14 @@ class TicketButton(discord.ui.Button):
 
         # April Fools' funny mode display
         display_mode = get_gamemode_display_name(self.mode_key)
-        if APRIL_FOOLS_MODE:
+        if False:
             display_mode = add_glitch(display_mode) if should_april_fools_glitch() else display_mode
 
         embed.add_field(name="Játékmód", value=display_mode, inline=True)
         embed.add_field(name="Minecraft név", value=f"`{linked_minecraft}`", inline=True)
 
         # April Fools' Melegségi szint (warmth level)
-        if APRIL_FOOLS_MODE:
+        if False:
             melegseg = random.randint(60, 101)
             embed.add_field(name="🌡️ Melegségi szint", value=f"{melegseg}%", inline=True)
 
@@ -2050,7 +1991,7 @@ class TicketButton(discord.ui.Button):
         embed.add_field(name="Játékos", value=member.mention, inline=True)
 
         # Add April Fools' message
-        if APRIL_FOOLS_MODE and random.random() < 0.3:
+        if False and random.random() < 0.3:
             embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
         await channel.send(content=ping_text, embed=embed, view=CloseTicketView(owner_id=member.id, mode_key=self.mode_key))
@@ -2643,7 +2584,7 @@ async def ticketpanel(interaction: discord.Interaction):
             return
 
         # April Fools' funny ticket panel
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_descriptions = [
                 "🎪 Üdvözöllek a cirkuszban! Válassz egy játékmódot! 🎪",
                 "🤡 A bohóc várja a jelentkezésedet! 🤡",
@@ -2662,7 +2603,7 @@ async def ticketpanel(interaction: discord.Interaction):
         )
 
         # Add April Fools' message to footer
-        if APRIL_FOOLS_MODE:
+        if False:
             embed.set_footer(text=get_april_fools_message())
 
         await interaction.channel.send(embed=embed, view=TicketPanelView())
@@ -2803,7 +2744,7 @@ async def rebuild_queue_message_ids(guild):
 
 
 async def refresh_queue_panel(guild):
-    """Refresh the queue panel with current status"""
+    """Refresh the queue panel"""
     global QUEUE_PANEL_MESSAGE
     if QUEUE_PANEL_MESSAGE is None:
         return
@@ -2815,13 +2756,16 @@ async def refresh_queue_panel(guild):
         msg = await channel.fetch_message(msg_id)
         lines = []
         for label, key, _rid in TICKET_TYPES:
-            status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
-            lines.append(f"**{label}**: {status}")
-        embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
-        embed.set_footer(text="Queue status frissítve")
+            lines.append(f"**{label}**")
+        embed = discord.Embed(
+            title="Queue nyitás",
+            description="\n".join(lines),
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="Információk", value="Kattints a gombra a queue megnyitásához.", inline=False)
+        embed.add_field(name="Gombok", value="Modal - Queue kezeléshez", inline=False)
         await msg.edit(embed=embed, view=QueuePanelView())
     except discord.NotFound:
-        # Panel message was deleted, clear tracking
         QUEUE_PANEL_MESSAGE = None
         data = _load_data()
         data["queue_panel_message"] = None
@@ -2847,11 +2791,15 @@ async def queuepanel(interaction: discord.Interaction):
     
     lines = []
     for label, key, _rid in TICKET_TYPES:
-        status = "🟢 NYITVA" if key in ACTIVE_QUEUES else "🔴 ZÁRVA"
-        lines.append(f"**{label}**: {status}")
+        lines.append(f"**{label}**")
 
-    embed = discord.Embed(title="🎮 Queue Panel", description="\n".join(lines), color=discord.Color.blurple())
-    embed.set_footer(text=f"Kinyitotta: {interaction.user.display_name}")
+    embed = discord.Embed(
+        title="Queue nyitás",
+        description="\n".join(lines),
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Információk", value="Kattints a gombra a queue megnyitásához.", inline=False)
+    embed.add_field(name="Gombok", value="Modal - Queue kezeléshez", inline=False)
     
     # Send to channel - NOT ephemeral, visible for everyone
     message = await channel.send(embed=embed, view=QueuePanelView())
@@ -2957,8 +2905,8 @@ async def testresult(
         # April Fools' effects
         display_username = add_glitch(username) if should_april_fools_glitch() else username
         display_mode = add_glitch(mode_val) if should_april_fools_glitch() else mode_val
-        display_prev_rank = get_funny_rank(prev_rank) if APRIL_FOOLS_MODE else prev_rank
-        display_rank_val = get_funny_rank(rank_val) if APRIL_FOOLS_MODE else rank_val
+        display_prev_rank = prev_rank
+        display_rank_val = rank_val
 
         embed = discord.Embed(
             title=f"{display_username} teszt eredménye 🏆",
@@ -2972,7 +2920,7 @@ async def testresult(
         embed.add_field(name="Elért rang:", value=display_rank_val, inline=False)
 
         # Add random April Fools' message
-        if APRIL_FOOLS_MODE and random.random() < 0.3:
+        if False and random.random() < 0.3:
             embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
         # Only send to the results channel (eredmenyek), not the command channel
@@ -3108,7 +3056,7 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
                     print(f"Error updating linked_accounts: {e}")
 
             # April Fools' funny rename message
-            if APRIL_FOOLS_MODE:
+            if False:
                 funny_rename_messages = [
                     f"✅ Sikeresen átnevezve: **{oldname}** → **{newname}**\nFrissítve: {updated_count} db bejegyzés (összes gamemód)\n\n🎪 A cirkuszban is átneveztük!",
                     f"✅ Sikeresen átnevezve: **{oldname}** → **{newname}**\nFrissítve: {updated_count} db bejegyzés (összes gamemód)\n\n🤡 A bohóc is átnevezte!",
@@ -3229,7 +3177,7 @@ async def profile(interaction: discord.Interaction, name: str):
                 p = t.get("points", 0)
                 total_points += p
                 # April Fools' funny rank display
-                display_rank = get_funny_rank(r) if APRIL_FOOLS_MODE else r
+                display_rank = r
                 mode_strs.append(f"**{m}**: {display_rank} ({p}pt)")
 
             embed.description = "\n".join(mode_strs)
@@ -3240,7 +3188,7 @@ async def profile(interaction: discord.Interaction, name: str):
                 rank_info += f"\n**Globális rank:** #{global_rank}"
 
             # Add April Fools' message
-            if APRIL_FOOLS_MODE:
+            if False:
                 rank_info += f"\n\n🎪 {get_april_fools_message()}"
 
             embed.add_field(name="Statisztika", value=rank_info, inline=False)
@@ -3313,7 +3261,7 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
             rank = player.get("rank")
 
             # April Fools' funny porog embed
-            if APRIL_FOOLS_MODE:
+            if False:
                 funny_titles = [
                     "🎪 Cirkuszi sorsolás",
                     "🤡 Bohóc sorsolás",
@@ -3336,7 +3284,7 @@ async def porog(interaction: discord.Interaction, gamemode: app_commands.Choice[
             embed.set_thumbnail(url=skin_url)
 
             # Add April Fools' message
-            if APRIL_FOOLS_MODE and random.random() < 0.3:
+            if False and random.random() < 0.3:
                 embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
             await interaction.followup.send(embed=embed)
@@ -3421,7 +3369,7 @@ async def retire(interaction: discord.Interaction, name: str, gamemode: app_comm
 
             if retire_resp.status == 200:
                 # April Fools' funny retire message
-                if APRIL_FOOLS_MODE:
+                if False:
                     funny_retire_messages = [
                         f"✅ Sikeres nyugdíjazás! **{name}** ({gamemode.value}) most **R{current_rank}**.\n\n🎪 A cirkuszba is nyugdíjaztuk!",
                         f"✅ Sikeres nyugdíjazás! **{name}** ({gamemode.value}) most **R{current_rank}**.\n\n🤡 A bohóc is nyugdíjazott!",
@@ -3516,7 +3464,7 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
 
             if post_resp.status == 200:
                 # April Fools' funny unretire message
-                if APRIL_FOOLS_MODE:
+                if False:
                     funny_unretire_messages = [
                         f"✅ Sikeres visszahozatal! **{name}** ({gamemode.value}) visszatért a tierlistára ({original_rank}).\n\n🎪 A cirkuszba is visszajött!",
                         f"✅ Sikeres visszahozatal! **{name}** ({gamemode.value}) visszatért a tierlistára ({original_rank}).\n\n🤡 A bohóc is visszajött!",
@@ -3597,7 +3545,7 @@ async def tierlistban(interaction: discord.Interaction, name: str, days: int, re
             msg += f"\n**Ok:** {reason}"
 
         # Add April Fools' message
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_ban_messages = [
                 "\n\n🎪 A cirkuszból is kitiltottuk!",
                 "\n\n🤡 A bohóc is elfelejtette!",
@@ -3643,7 +3591,7 @@ async def tierlistunban(interaction: discord.Interaction, name: str):
             await api_set_ban(username=name, banned=False)
 
         # April Fools' funny unban message
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_unban_messages = [
                 f"✅ **{name}** vissza lett engedve a tesztelésbe.\n\n🎪 A cirkuszba is visszajöhet!",
                 f"✅ **{name}** vissza lett engedve a tesztelésbe.\n\n🤡 A bohóc is visszajöhet!",
@@ -3698,7 +3646,7 @@ class ConfirmRemoveView(discord.ui.View):
                     desc += f"\n{details}"
 
                 # April Fools' funny remove message
-                if APRIL_FOOLS_MODE:
+                if False:
                     funny_remove_messages = [
                         "\n\n🎪 A cirkuszból is eltávolítottuk!",
                         "\n\n🤡 A bohóc is elfelejtette!",
@@ -3897,7 +3845,7 @@ async def bulkimport(interaction: discord.Interaction, file: discord.Attachment)
             result_msg += f"\n... és még {len(errors) - 10} hiba"
 
     # Add April Fools' message
-    if APRIL_FOOLS_MODE:
+    if False:
         funny_import_messages = [
             "\n\n🎪 A cirkuszba is importáltuk!",
             "\n\n🤡 A bohóc is importált!",
@@ -3997,28 +3945,11 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
         for label, mode_key, _ in TICKET_TYPES:
             last_closed = float(cooldowns.get(mode_key, 0))
             if last_closed <= 0:
-                # April Fools' funny cooldown messages
-                if APRIL_FOOLS_MODE and random.random() < 0.2:
-                    funny_ready = [
-                        f"🎪 **{label}**: A cirkusz nyitva!",
-                        f"🤡 **{label}**: A bohóc vár!",
-                        f"🎭 **{label}**: A színpad készen áll!",
-                    ]
-                    mode_cooldowns.append(random.choice(funny_ready))
-                else:
-                    mode_cooldowns.append(f"✅ **{label}**: Nincs cooldown")
+                mode_cooldowns.append(f"✅ **{label}**: Nincs cooldown")
             else:
                 left = int((last_closed + COOLDOWN_SECONDS) - time.time())
                 if left <= 0:
-                    if APRIL_FOOLS_MODE and random.random() < 0.2:
-                        funny_ready = [
-                            f"🎪 **{label}**: A cirkusz nyitva!",
-                            f"🤡 **{label}**: A bohóc vár!",
-                            f"🎭 **{label}**: A színpad készen áll!",
-                        ]
-                        mode_cooldowns.append(random.choice(funny_ready))
-                    else:
-                        mode_cooldowns.append(f"✅ **{label}**: Kész vagy, már nyithatsz ticketet!")
+                    mode_cooldowns.append(f"✅ **{label}**: Kész vagy, már nyithatsz ticketet!")
                 else:
                     days = left // (24 * 3600)
                     hours = (left % (24 * 3600)) // 3600
@@ -4030,17 +3961,7 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
                         time_str = f"{hours} óra {minutes} perc"
                     else:
                         time_str = f"{minutes} perc"
-
-                    # April Fools' funny cooldown display
-                    if APRIL_FOOLS_MODE and random.random() < 0.15:
-                        funny_cooldown = [
-                            f"🎪 **{label}**: {time_str} (a cirkusz zárva!)",
-                            f"🤡 **{label}**: {time_str} (a bohóc alszik!)",
-                            f"🎭 **{label}**: {time_str} (a színház szünetel!)",
-                        ]
-                        mode_cooldowns.append(random.choice(funny_cooldown))
-                    else:
-                        mode_cooldowns.append(f"⏳ **{label}**: {time_str}")
+                    mode_cooldowns.append(f"⏳ **{label}**: {time_str}")
 
         # Add global cooldown info
         global_last = data.get("cooldowns", {}).get(str(target_member.id), {}).get("_global", 0)
@@ -4054,7 +3975,7 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
         embed.description = "\n".join(mode_cooldowns)
 
         # April Fools' footer
-        if APRIL_FOOLS_MODE:
+        if False:
             embed.set_footer(text=f"Cooldown időtartam: 14 nap | 🎪 {get_april_fools_message()}")
         else:
             embed.set_footer(text=f"Cooldown időtartam: 14 nap")
@@ -4083,7 +4004,7 @@ async def link(interaction: discord.Interaction, code: str = None):
             existing_link = get_linked_minecraft_name(interaction.user.id)
             if existing_link:
                 # April Fools' funny link message
-                if APRIL_FOOLS_MODE:
+                if False:
                     funny_descriptions = [
                         f"**Minecraft:** `{existing_link}`\n**Discord:** {interaction.user.mention}\n\n🎪 A cirkusz már össze van kapcsolva!",
                         f"**Minecraft:** `{existing_link}`\n**Discord:** {interaction.user.mention}\n\n🤡 A bohóc már össze van kapcsolva!",
@@ -4131,7 +4052,7 @@ async def link(interaction: discord.Interaction, code: str = None):
                 dm_sent = False
 
             # April Fools' funny link code embed
-            if APRIL_FOOLS_MODE:
+            if False:
                 funny_titles = [
                     "🎪 Cirkuszi kód generálva!",
                     "🤡 Bohóc kód generálva!",
@@ -4164,7 +4085,7 @@ async def link(interaction: discord.Interaction, code: str = None):
                 )
 
             # Add April Fools' message
-            if APRIL_FOOLS_MODE and random.random() < 0.3:
+            if False and random.random() < 0.3:
                 embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -4220,7 +4141,7 @@ async def unlink(interaction: discord.Interaction):
         unlink_minecraft_account(interaction.user.id)
 
         # April Fools' funny unlink embed
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_titles = [
                 "🎪 Cirkuszi leválasztás sikeres!",
                 "🤡 Bohóc leválasztás sikeres!",
@@ -4238,7 +4159,7 @@ async def unlink(interaction: discord.Interaction):
         )
 
         # Add April Fools' message
-        if APRIL_FOOLS_MODE and random.random() < 0.3:
+        if False and random.random() < 0.3:
             embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -4263,7 +4184,7 @@ async def mylink(interaction: discord.Interaction):
             return
 
         # April Fools' funny mylink embed
-        if APRIL_FOOLS_MODE:
+        if False:
             funny_titles = [
                 "🎪 Cirkuszi fiók",
                 "🤡 Bohóc fiók",
@@ -4282,7 +4203,7 @@ async def mylink(interaction: discord.Interaction):
         )
 
         # Add April Fools' message
-        if APRIL_FOOLS_MODE and random.random() < 0.3:
+        if False and random.random() < 0.3:
             embed.add_field(name="🎪 Áprilisi üzenet:", value=get_april_fools_message(), inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -4306,7 +4227,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             "🃏 A mágus eltüntette a parancsot!",
         ]
 
-        if APRIL_FOOLS_MODE:
+        if False:
             error_msg = random.choice(funny_errors)
         else:
             error_msg = f"❌ Parancs hiba: {type(error).__name__}: {error}"
