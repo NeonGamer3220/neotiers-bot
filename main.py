@@ -1434,13 +1434,13 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             return {"status": 200, "data": {"success": True}}
         print("Supabase upsert failed, falling back")
 
-    # Fallback: Website API – try UPDATE (PUT) first, else DELETE+POST
+    # Fallback: Website API – check existence first, then either PUT or POST
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
 
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
 
-    # Check if test exists and try to UPDATE it
+    # Check if test already exists
     try:
         check_url = f"{WEBSITE_URL}/api/tests?username={username}&mode={mode_for_api}"
         async with http_session.get(check_url, headers=_auth_headers(), timeout=timeout) as resp:
@@ -1449,7 +1449,7 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
                 test = data.get("test") or (data.get("tests") or [None])[0]
                 if test and test.get("id"):
                     test_id = test["id"]
-                    print(f"Updating existing test id={test_id} via PUT")
+                    print(f"Test exists (id={test_id}), updating via PUT")
                     update_url = f"{WEBSITE_URL}/api/tests/{test_id}"
                     put_payload = {
                         "username": username,
@@ -1459,23 +1459,19 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
                         "testerName": tester.display_name,
                         "ts": int(time.time()),
                     }
-                    try:
-                        async with http_session.put(update_url, json=put_payload, headers=_auth_headers(), timeout=timeout) as put_resp:
-                            if put_resp.status in (200, 204):
-                                return {"status": 200, "data": {"success": True}}
-                            print(f"PUT failed ({put_resp.status}), trying DELETE then POST")
-                    except Exception as e:
-                        print(f"PUT exception: {e}")
-                    # If PUT fails, try DELETE then fall through to POST
-                    try:
-                        async with http_session.delete(update_url, headers=_auth_headers(), timeout=timeout) as d_resp:
-                            print(f"DELETE status: {d_resp.status}")
-                    except Exception as e:
-                        print(f"DELETE failed: {e}")
+                    async with http_session.put(update_url, json=put_payload, headers=_auth_headers(), timeout=timeout) as put_resp:
+                        try:
+                            put_data = await put_resp.json()
+                        except Exception:
+                            put_data = {}
+                        print(f"PUT response: {put_resp.status} – {put_data}")
+                        return {"status": put_resp.status, "data": put_data}
+                else:
+                    print("No existing test, creating via POST")
     except Exception as e:
-        print(f"Error during website update: {e}")
+        print(f"Error checking existing test: {e}")
 
-    # POST new test with upsert flag (last resort)
+    # POST new test (no upsert flag)
     url = f"{WEBSITE_URL}/api/tests"
     payload = {
         "username": username,
@@ -1483,10 +1479,9 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
         "rank": rank,
         "testerId": str(tester.id),
         "testerName": tester.display_name,
-        "upsert": True,
         "ts": int(time.time()),
     }
-    print(f"[API_POST_TEST] POST to website: {username}/{mode_for_api}")
+    print(f"[API_POST_TEST] POST new test: {username}/{mode_for_api}")
     try:
         async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
             try:
