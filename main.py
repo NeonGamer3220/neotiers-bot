@@ -1576,15 +1576,14 @@ class CloseTicketView(discord.ui.View):
     async def close(self, interaction: discord.Interaction, _button: discord.ui.Button):
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=False)
+            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
             return
 
         member = interaction.user
         if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: member not found.", ephemeral=False)
+            await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
             return
 
-        # Get owner_id from channel topic
         topic = channel.topic or ""
         owner_id = 0
         if "owner=" in topic:
@@ -1593,12 +1592,11 @@ class CloseTicketView(discord.ui.View):
             except (ValueError, IndexError):
                 owner_id = 0
 
-        # Allow both ticket owner AND staff to close
         if member.id != owner_id and not is_staff_member(member):
-            await interaction.response.send_message("Nincs jogosultságod a ticket zárásához.", ephemeral=False)
+            await interaction.response.send_message("Nincs jogosultságod a ticket zárásához.", ephemeral=True)
             return
 
-        await interaction.response.send_message("✅ Ticket zárása... 3 mp múlva törlöm a csatornát.", ephemeral=False)
+        await interaction.response.send_message("✅ Ticket zárása... 3 mp múlva törlöm a csatornát.", ephemeral=True)
 
         # Get owner_id and mode_key from channel topic
         topic = channel.topic or ""
@@ -1634,20 +1632,18 @@ class CloseTicketView(discord.ui.View):
         """Give tier to the ticket owner - only for staff"""
         member = interaction.user
         if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: member not found.", ephemeral=False)
+            await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
             return
 
-        # Only staff can give tier
         if not is_staff_member(member):
-            await interaction.response.send_message("Nincs jogosultságod tier adásához.", ephemeral=False)
+            await interaction.response.send_message("Nincs jogosultságod tier adásához.", ephemeral=True)
             return
 
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=False)
+            await interaction.response.send_message("Hiba: ez nem szövegcsatorna.", ephemeral=True)
             return
 
-        # Get owner_id and mode from channel topic
         topic = channel.topic or ""
         owner_id = 0
         mode_key = ""
@@ -1663,18 +1659,16 @@ class CloseTicketView(discord.ui.View):
                 mode_key = ""
 
         if owner_id == 0:
-            await interaction.response.send_message("Hiba: nem találom a ticket tulajdonosát.", ephemeral=False)
+            await interaction.response.send_message("Hiba: nem találom a ticket tulajdonosát.", ephemeral=True)
             return
 
-        # Get linked Minecraft name for the owner
         linked_minecraft = get_linked_minecraft_name(owner_id)
         if not linked_minecraft:
-            await interaction.response.send_message("❌ A játékos nincs összekapcsolva! Nem tudom a Minecraft nevét.", ephemeral=False)
+            await interaction.response.send_message("❌ A játékos nincs összekapcsolva! Nem tudom a Minecraft nevét.", ephemeral=True)
             return
 
-        # Show a select menu for tier selection (including mode)
         tier_select = TierSelectView(owner_id, linked_minecraft, mode_key, member)
-        await interaction.response.send_message("Válaszd ki a játékmódot és a tier-t:", view=tier_select, ephemeral=False)
+        await interaction.response.send_message("Válaszd ki a játékmódot és a tier-t:", view=tier_select, ephemeral=True)
 
 
 class TierSelectView(discord.ui.View):
@@ -1862,21 +1856,19 @@ class TicketButton(discord.ui.Button):
         member = interaction.user
 
         if guild is None or not isinstance(member, discord.Member):
-            await interaction.response.send_message("Hiba: guild/member nem elérhető.", ephemeral=False)
+            await interaction.response.send_message("Hiba: guild/member nem elérhető.", ephemeral=True)
             return
 
-        # Check if user has a linked Minecraft account
         linked_minecraft = get_linked_minecraft_name(member.id)
         if not linked_minecraft:
             await interaction.response.send_message(
                 "❌ **Nincs összekapcsolva a Minecraft fiókod!**\n\n"
                 "Használd a `/link` parancsot a Discordban, majd `/link <kód>` a Minecraftban, "
                 "hogy összekapcsold a fiókodat. Csak azok hozhatnak létre ticketet, akik összekapcsolták a fiókjukat!",
-                ephemeral=False
+                ephemeral=True
             )
             return
 
-        # Check if player is banned
         player_name = member.display_name
         if member.nick:
             player_name = member.nick
@@ -1893,44 +1885,41 @@ class TicketButton(discord.ui.Button):
                             await interaction.response.send_message(
                                 f"❌ Ki vagy tiltva a tesztelésből!\n" +
                                 (f"**Ok:** {reason}" if reason else ""),
-                                ephemeral=False
+                                ephemeral=True
                             )
                             return
             except Exception:
                 pass
 
-        # Rank check
         player_rank = await get_player_rank_for_mode(linked_minecraft, self.mode_key)
         if not can_open_ticket(player_rank):
             await interaction.response.send_message(
                 f"❌ A **{get_gamemode_display_name(self.mode_key)}** ticket megnyitásához legalább **LT3** rang szükséges. "
                 f"Jelenlegi rangod: **{player_rank}**.",
-                ephemeral=False
+                ephemeral=True
             )
             return
 
-        # Cooldown check
         left = cooldown_left(member.id, self.mode_key)
         if left > 0:
             days = left // (24 * 3600)
             hours = (left % (24 * 3600)) // 3600
             await interaction.response.send_message(
                 f"⏳ **Cooldown**: ebből a játékmódból ({self.mode_key}) csak **{days} nap {hours} óra** múlva nyithatsz új ticketet.",
-                ephemeral=False
+                ephemeral=True
             )
             return
 
-        # Acquire lock to prevent duplicate tickets
+        # Acquire lock
         lock_key = (member.id, self.mode_key)
         if lock_key not in TICKET_CREATION_LOCKS:
             TICKET_CREATION_LOCKS[lock_key] = asyncio.Lock()
         async with TICKET_CREATION_LOCKS[lock_key]:
-            # Re-check for existing ticket inside lock
             existing_channel_id = get_open_ticket_channel_id(member.id, self.mode_key)
             if existing_channel_id:
                 ch = guild.get_channel(existing_channel_id)
                 if ch:
-                    await interaction.response.send_message("Van már ticketed ebből a játékmódból. 🔒", ephemeral=False)
+                    await interaction.response.send_message("Van már ticketed ebből a játékmódból. 🔒", ephemeral=True)
                     return
                 else:
                     set_open_ticket_channel_id(member.id, self.mode_key, None)
@@ -1939,7 +1928,7 @@ class TicketButton(discord.ui.Button):
             if TICKET_CATEGORY_ID and not isinstance(category, discord.CategoryChannel):
                 await interaction.response.send_message(
                     "❌ Ticket kategória rossz / nem kategória. Állítsd be jól a TICKET_CATEGORY_ID-t.",
-                    ephemeral=False
+                    ephemeral=True
                 )
                 return
 
@@ -1968,7 +1957,7 @@ class TicketButton(discord.ui.Button):
             except discord.Forbidden:
                 await interaction.response.send_message(
                     "❌ Nincs jogom csatornát létrehozni. Add a botnak **Csatornák kezelése** jogot (és a kategórián is).",
-                    ephemeral=False
+                    ephemeral=True
                 )
                 return
 
@@ -1995,7 +1984,6 @@ class TicketButton(discord.ui.Button):
             embed.add_field(name="Játékos", value=member.mention, inline=True)
 
             await channel.send(content=ping_text, embed=embed, view=CloseTicketView(owner_id=member.id, mode_key=self.mode_key))
-            await interaction.response.send_message(f"✅ Ticket létrehozva: {channel.mention}", ephemeral=False)
 
 
 # =========================
@@ -2084,32 +2072,69 @@ class QueueActionView(discord.ui.View):
     async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if not member:
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=False)
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
         gamemode = self._get_gamemode(interaction)
         if not gamemode:
-            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=False)
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
             return
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
-            await interaction.response.send_message("❌ A queue nem létezik vagy nem nyitva.", ephemeral=False)
+            await interaction.response.send_message("❌ A queue nem létezik vagy nem nyitva.", ephemeral=True)
             return
 
         if any(p.discord_id == member.id for p in queue["players"]):
-            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=False)
+            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=True)
             return
         if any(t.discord_id == member.id for t in queue.get("testers", [])):
-            await interaction.response.send_message("Már benne vagy a queue-ban!", ephemeral=False)
+            await interaction.response.send_message("Már benna van a queue-ban teszterként!", ephemeral=True)
             return
 
         linked_mc = get_linked_minecraft_name(member.id)
         if not linked_mc:
             await interaction.response.send_message(
                 "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
-                ephemeral=False
+                ephemeral=True
             )
+            return
+
+        if is_gamemode_tester_or_admin(member, gamemode):
+            queue["testers"].append(QueuePlayer(member.id, linked_mc))
+            await update_queue_message(gamemode)
+            await interaction.response.send_message(
+                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+                ephemeral=True
+            )
+            return
+
+        cd_left = cooldown_left(member.id, gamemode)
+        if cd_left > 0:
+            days = cd_left // (24 * 60 * 60)
+            hours = (cd_left % (24 * 60 * 60)) // (60 * 60)
+            await interaction.response.send_message(
+                f"❌ Még **{days} nap {hours} óra** cooldown van hátra a **{get_gamemode_display_name(gamemode)}** módban. "
+                f"Várj a cooldown lejártáig, mielőtt újra queue-hoz csatlakozol.",
+                ephemeral=True
+            )
+            return
+
+        player_rank = await get_player_rank_for_mode(linked_mc, gamemode)
+        if not can_join_queue(player_rank):
+            await interaction.response.send_message(
+                f"❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. "
+                f"Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).",
+                ephemeral=True
+            )
+            return
+
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(gamemode)
+        await interaction.response.send_message(
+            f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+            ephemeral=True
+        )
             return
 
         # Testers bypass
@@ -2153,17 +2178,17 @@ class QueueActionView(discord.ui.View):
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if not member:
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=False)
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
         gamemode = self._get_gamemode(interaction)
         if not gamemode:
-            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=False)
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
             return
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
-            await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=False)
+            await interaction.response.send_message("❌ A queue nem létezik.", ephemeral=True)
             return
 
         for i, p in enumerate(queue["players"]):
@@ -2172,7 +2197,7 @@ class QueueActionView(discord.ui.View):
                 await update_queue_message(gamemode)
                 await interaction.response.send_message(
                     f"✅ Kiléptél a **{get_gamemode_display_name(gamemode)}** queue-ból!",
-                    ephemeral=False
+                    ephemeral=True
                 )
                 return
 
@@ -2182,11 +2207,11 @@ class QueueActionView(discord.ui.View):
                 await update_queue_message(gamemode)
                 await interaction.response.send_message(
                     f"✅ Kiléptél a **{get_gamemode_display_name(gamemode)}** queue-ból!",
-                    ephemeral=False
+                    ephemeral=True
                 )
                 return
 
-        await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=False)
+        await interaction.response.send_message("Nem vagy a queue-ban.", ephemeral=True)
 
     @discord.ui.button(label="❌ Queue bezárása", style=discord.ButtonStyle.secondary, custom_id="queue_close")
     async def close_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2202,7 +2227,6 @@ class QueueActionView(discord.ui.View):
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if queue:
-            # Normal case: queue exists in memory
             if not is_staff_member(member) and queue["opened_by"] != member.id:
                 await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
                 return
@@ -2214,7 +2238,7 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        # Orphaned queue: not in memory but message may still exist
+        # Orphaned queue handling
         msg_id = None
         for mid, gm in QUEUE_MESSAGE_IDS.items():
             if gm == gamemode:
@@ -2228,7 +2252,6 @@ class QueueActionView(discord.ui.View):
                     try:
                         msg = await channel.fetch_message(msg_id)
                         if msg.components:
-                            # Message still has buttons => treat as open queue
                             if not is_staff_member(member):
                                 await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő vagy staff zárhatja be.", ephemeral=True)
                                 return
@@ -2241,27 +2264,27 @@ class QueueActionView(discord.ui.View):
                             return
                     except Exception:
                         pass
-        await interaction.response.send_message("❌ A queue már lezárva vagy nem elérhető.", ephemeral=False)
+        await interaction.response.send_message("❌ A queue már lezárva vagy nem elérhető.", ephemeral=True)
 
     @discord.ui.button(label="Következő játékos", style=discord.ButtonStyle.primary, custom_id="queue_next")
     async def next_player(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if not member:
-            await interaction.response.send_message("Hiba: nem tag.", ephemeral=False)
+            await interaction.response.send_message("Hiba: nem tag.", ephemeral=True)
             return
 
         gamemode = self._get_gamemode(interaction)
         if not gamemode:
-            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=False)
+            await interaction.response.send_message("❌ Hiba: nem sikerült meghatározni a játékmódot.", ephemeral=True)
             return
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if not queue or not queue["players"]:
-            await interaction.response.send_message("❌ Nincs több játékos a queue-ban.", ephemeral=False)
+            await interaction.response.send_message("❌ Nincs több játékos a queue-ban.", ephemeral=True)
             return
 
         if not is_staff_member(member) and queue["opened_by"] != member.id:
-            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő hívhatja a következő játékost.", ephemeral=False)
+            await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő hívhatja a következő játékost.", ephemeral=True)
             return
 
         # Get next player (FIFO)
@@ -2273,7 +2296,7 @@ class QueueActionView(discord.ui.View):
         guild = interaction.guild
         category = guild.get_channel(TICKET_CREATE_CATEGORY_ID)
         if not category or not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("❌ Hiba: ticket kategória nem található.", ephemeral=False)
+            await interaction.response.send_message("❌ Hiba: ticket kategória nem található.", ephemeral=True)
             return
 
         channel_name = f"{gamemode}-{next_player_obj.minecraft_name}".lower().replace(" ", "-")[:50]
@@ -2311,13 +2334,8 @@ class QueueActionView(discord.ui.View):
             view = CloseTicketView(owner_id=next_player_obj.discord_id, mode_key=gamemode)
             await channel.send(embed=embed, view=view)
 
-            await interaction.response.send_message(
-                f"✅ Ticket létrehozva: {channel.mention} | Játékos: {next_player_obj.minecraft_name}",
-                ephemeral=False
-            )
-
         except Exception as e:
-            await interaction.response.send_message(f"❌ Hiba a channel létrehozása során: {e}", ephemeral=False)
+            await interaction.response.send_message(f"❌ Hiba a channel létrehozása során: {e}", ephemeral=True)
 
 
 class ConfirmCloseQueueView(discord.ui.View):
@@ -2334,25 +2352,21 @@ class ConfirmCloseQueueView(discord.ui.View):
 
         queue = ACTIVE_QUEUES.get(self.gamemode)
         if queue:
-            # Normal closure: queue exists in memory
             if queue["opened_by"] != member.id and not is_staff_member(member):
-                await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=False)
+                await interaction.response.send_message("❌ Csak a queue-t megnyitó tesztelő zárhatja be.", ephemeral=True)
                 return
 
             del ACTIVE_QUEUES[self.gamemode]
             await interaction.response.send_message(
                 f"✅ **{get_gamemode_display_name(self.gamemode)}** queue bezárva.",
-                ephemeral=False
+                ephemeral=True
             )
         else:
-            # Orphaned closure: queue state missing, will try to clean message
-            await interaction.response.defer(ephemeral=False)
+            await interaction.response.defer(ephemeral=True)
 
-        # Refresh queue panel (always)
         if interaction.guild:
             await refresh_queue_panel(interaction.guild)
 
-        # Try to update/remove the queue message
         try:
             msg_id = None
             for mid, gm in list(QUEUE_MESSAGE_IDS.items()):
@@ -2372,15 +2386,13 @@ class ConfirmCloseQueueView(discord.ui.View):
                                 color=get_gamemode_color(self.gamemode)
                             )
                             await msg.edit(embed=embed, view=None)
-                        # Clean up mapping
                         if msg_id in QUEUE_MESSAGE_IDS:
                             del QUEUE_MESSAGE_IDS[msg_id]
                             _persist_queue_message_ids()
                         if not queue:
-                            # Orphaned case: send success followup
                             await interaction.followup.send(
                                 f"✅ **{get_gamemode_display_name(self.gamemode)}** queue bezárva (állapot visszaállítva).",
-                                ephemeral=False
+                                ephemeral=True
                             )
         except Exception:
             pass
@@ -2873,17 +2885,16 @@ async def pingpanel(interaction: discord.Interaction):
 )
 async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
     """Close a queue by gamemode"""
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer(ephemeral=True)
     
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        await interaction.followup.send("Hiba.", ephemeral=False)
+        await interaction.followup.send("Hiba.", ephemeral=True)
         return
     
     mode_key = gamemode.value.lower()
     queue = ACTIVE_QUEUES.get(mode_key)
     
     if not queue:
-        # Queue not in memory - check if a queue message still exists and close it
         msg_id = None
         for mid, gm in QUEUE_MESSAGE_IDS.items():
             if gm == mode_key:
@@ -2904,25 +2915,23 @@ async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Ch
                         await msg.edit(embed=embed, view=None)
                         del QUEUE_MESSAGE_IDS[msg_id]
                         _persist_queue_message_ids()
-                        await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva (törölve a státuszból).", ephemeral=False)
+                        await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva (törölve a státuszból).", ephemeral=True)
                         await refresh_queue_panel(interaction.guild)
                         return
                     except discord.NotFound:
                         pass
-        await interaction.followup.send(f"❌ A **{gamemode.name}** queue nincs nyitva.", ephemeral=False)
+        await interaction.followup.send(f"❌ A **{gamemode.name}** queue nincs nyitva.", ephemeral=True)
         return
     
-    # Check permission: staff or the person who opened it
     if queue.get("opened_by") != interaction.user.id and not is_staff_member(interaction.user):
-        await interaction.followup.send("❌ Csak a queue-t megnyitó tesztelő vagy staff zárhatja be.", ephemeral=False)
+        await interaction.followup.send("❌ Csak a queue-t megnyitó tesztelő vagy staff zárhatja be.", ephemeral=True)
         return
     
     del ACTIVE_QUEUES[mode_key]
-    await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva.", ephemeral=False)
+    await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva.", ephemeral=True)
     
     await refresh_queue_panel(interaction.guild)
     
-    # Update queue message in channel
     try:
         msg_id = None
         for mid, gm in list(QUEUE_MESSAGE_IDS.items()):
