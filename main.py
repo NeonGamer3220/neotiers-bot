@@ -1401,6 +1401,26 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         return {"status": 0, "data": {"error": str(e)}}
 
 
+async def api_delete_test(test_id: str) -> Dict[str, Any]:
+    """Delete a test entry by ID via the website API"""
+    if not WEBSITE_URL:
+        return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
+
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+    url = f"{WEBSITE_URL}/api/tests/{test_id}"
+
+    try:
+        async with http_session.delete(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"message": await resp.text()}
+            return {"status": resp.status, "data": data}
+    except Exception as e:
+        print(f"Error deleting test {test_id}: {e}")
+        return {"status": 0, "data": {"error": str(e)}}
+
+
 async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
@@ -1410,6 +1430,7 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
     # First, check for and delete any duplicates for this mode
     # Use proper display name for checking
     mode_for_api = get_gamemode_display_name(mode)
+    duplicate_test_id = None
     try:
         # Get all tests for this user
         check_url = f"{WEBSITE_URL}/api/tests?username={username}"
@@ -1422,11 +1443,15 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
                 for test in tests:
                     test_mode = str(test.get("gamemode", "")).lower()
                     if test_mode == normalized_mode:
-                        # Found existing entry - will be updated by upsert
+                        # Found existing entry - delete it before inserting new one
                         test_id = test.get("id")
-                        print(f"Found existing entry for {username}/{test_mode}: id={test_id}, rank={test.get('rank')}")
+                        if test_id:
+                            print(f"Found duplicate test for {username}/{test_mode}: id={test_id}, deleting...")
+                            duplicate_test_id = str(test_id)
+                            delete_resp = await api_delete_test(duplicate_test_id)
+                            print(f"Delete result: {delete_resp}")
     except Exception as e:
-        print(f"Error checking duplicates: {e}")
+        print(f"Error checking/deleting duplicate: {e}")
 
     url = f"{WEBSITE_URL}/api/tests"
     # Use proper display name for mode (not lowercase)
