@@ -1932,13 +1932,10 @@ class TicketButton(discord.ui.Button):
 
         set_open_ticket_channel_id(member.id, self.mode_key, channel.id)
 
-        ping_role_id = None
-        for _label, mk, rid in TICKET_TYPES:
-            if mk == self.mode_key:
-                ping_role_id = rid
-                break
+        set_open_ticket_channel_id(member.id, self.mode_key, channel.id)
 
-        ping_text = f"<@&{ping_role_id}>" if ping_role_id else ""
+        # No ping - testers are already in queue and will be notified there
+        ping_text = ""
 
         rounds_display = get_ticket_rounds_display(self.mode_key)
 
