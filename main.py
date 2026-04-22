@@ -2070,6 +2070,16 @@ class QueueActionView(discord.ui.View):
             )
             return
 
+        # Check if user is a tester for THIS specific gamemode (or admin/debug) - TESTERS BYPASS ALL CHECKS
+        if is_gamemode_tester_or_admin(member, gamemode):
+            queue["testers"].append(QueuePlayer(member.id, linked_mc))
+            await update_queue_message(gamemode)
+            await interaction.response.send_message(
+                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+                ephemeral=True
+            )
+            return
+
         # Cooldown check: prevent users with active cooldown from joining queue
         cd_left = cooldown_left(member.id, gamemode)
         if cd_left > 0:
@@ -2078,16 +2088,6 @@ class QueueActionView(discord.ui.View):
             await interaction.response.send_message(
                 f"❌ Még **{days} nap {hours} óra** cooldown van hátra a **{get_gamemode_display_name(gamemode)}** módban. "
                 f"Várj a cooldown lejártáig, mielőtt újra queue-hoz csatlakozol.",
-                ephemeral=True
-            )
-            return
-
-        # Check if user is a tester for THIS specific gamemode (or admin/debug) - TESTERS BYPASS RANK CHECK
-        if is_gamemode_tester_or_admin(member, gamemode):
-            queue["testers"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(gamemode)
-            await interaction.response.send_message(
-                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
                 ephemeral=True
             )
             return
