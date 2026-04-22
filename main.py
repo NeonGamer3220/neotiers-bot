@@ -2205,7 +2205,37 @@ class QueueActionView(discord.ui.View):
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
-            await interaction.response.send_message("❌ A queue már lezárva.", ephemeral=True)
+            # Queue missing from memory - might have been closed already or bot restarted.
+            # Check if the message embed indicates it's still open. If so, allow closing.
+            try:
+                msg = interaction.message
+                if msg and msg.embeds:
+                    title = msg.embeds[0].title or ""
+                    # If the embed still says "Queue" (not closed), treat as still open
+                    if "Queue" in title and "zárva" not in title and "closed" not in title.lower():
+                        # Force-close the queue message without needing ACTIVE_QUEUES entry
+                        embed = discord.Embed(
+                            title=f"{get_gamemode_indicator(gamemode, False)} {get_gamemode_display_name(gamemode)} Queue",
+                            description="A queue zárva van.",
+                            color=get_gamemode_color(gamemode)
+                        )
+                        await msg.edit(embed=embed, view=None)
+                        # Clean up persistence
+                        msg_id = getattr(msg, 'id', None)
+                        if msg_id and msg_id in QUEUE_MESSAGE_IDS:
+                            del QUEUE_MESSAGE_IDS[msg_id]
+                            _persist_queue_message_ids()
+                        await interaction.response.send_message(
+                            f"✅ **{get_gamemode_display_name(gamemode)}** queue bezárva (állapot visszaállítva).",
+                            ephemeral=True
+                        )
+                        # Refresh panel
+                        if interaction.guild:
+                            await refresh_queue_panel(interaction.guild)
+                        return
+            except Exception:
+                pass
+            await interaction.response.send_message("❌ A queue már lezárva vagy nem elérhető.", ephemeral=True)
             return
 
         if not is_staff_member(member) and queue["opened_by"] != member.id:
@@ -2310,7 +2340,34 @@ class ConfirmCloseQueueView(discord.ui.View):
 
         queue = ACTIVE_QUEUES.get(self.gamemode)
         if not queue:
-            await interaction.response.send_message("❌ A queue már nem létezik.", ephemeral=True)
+            # Queue already closed - update the message if still present and clean up
+            await interaction.response.send_message("❌ A queue már lezárva volt.", ephemeral=True)
+            # Try to clean up the old queue message
+            try:
+                msg_id = None
+                for mid, gm in list(QUEUE_MESSAGE_IDS.items()):
+                    if gm == self.gamemode:
+                        msg_id = mid
+                        break
+                if msg_id:
+                    channel_id = QUEUE_CHANNELS.get(self.gamemode)
+                    if channel_id:
+                        channel = bot.get_channel(channel_id)
+                        if channel and isinstance(channel, discord.TextChannel):
+                            msg = await channel.fetch_message(msg_id)
+                            embed = discord.Embed(
+                                title=f"{get_gamemode_indicator(self.gamemode, False)} {get_gamemode_display_name(self.gamemode)} Queue",
+                                description="A queue zárva van.",
+                                color=get_gamemode_color(self.gamemode)
+                            )
+                            await msg.edit(embed=embed, view=None)
+                            if msg_id in QUEUE_MESSAGE_IDS:
+                                del QUEUE_MESSAGE_IDS[msg_id]
+                                _persist_queue_message_ids()
+            except Exception:
+                pass
+            if interaction.guild:
+                await refresh_queue_panel(interaction.guild)
             return
 
         if queue["opened_by"] != member.id and not is_staff_member(member):
@@ -2345,8 +2402,9 @@ class ConfirmCloseQueueView(discord.ui.View):
                             color=get_gamemode_color(self.gamemode)
                         )
                         await msg.edit(embed=embed, view=None)
-                        del QUEUE_MESSAGE_IDS[msg_id]
-                        _persist_queue_message_ids()
+                        if msg_id in QUEUE_MESSAGE_IDS:
+                            del QUEUE_MESSAGE_IDS[msg_id]
+                            _persist_queue_message_ids()
         except Exception:
             pass
 
@@ -2848,6 +2906,33 @@ async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Ch
     queue = ACTIVE_QUEUES.get(mode_key)
     
     if not queue:
+        # Queue not in memory - check if a queue message still exists and close it
+        msg_id = None
+        for mid, gm in QUEUE_MESSAGE_IDS.items():
+            if gm == mode_key:
+                msg_id = mid
+                break
+        if msg_id:
+            channel_id = QUEUE_CHANNELS.get(mode_key)
+            if channel_id:
+                channel = interaction.guild.get_channel(channel_id)
+                if channel and isinstance(channel, discord.TextChannel):
+                    try:
+                        msg = await channel.fetch_message(msg_id)
+                        embed = discord.Embed(
+                            title=f"{get_gamemode_indicator(mode_key, False)} {get_gamemode_display_name(mode_key)} Queue",
+                            description="A queue zárva van.",
+                            color=get_gamemode_color(mode_key)
+                        )
+                        await msg.edit(embed=embed, view=None)
+                        del QUEUE_MESSAGE_IDS[msg_id]
+                        _persist_queue_message_ids()
+                        await interaction.followup.send(f"✅ **{gamemode.name}** queue bezárva (törölve a státuszból).", ephemeral=True)
+                        await refresh_queue_panel(interaction.guild)
+                        return
+                    except discord.NotFound:
+                        # Message deleted already
+                        pass
         await interaction.followup.send(f"❌ A **{gamemode.name}** queue nincs nyitva.", ephemeral=True)
         return
     
@@ -2880,8 +2965,9 @@ async def closequeue(interaction: discord.Interaction, gamemode: app_commands.Ch
                         color=get_gamemode_color(mode_key)
                     )
                     await msg.edit(embed=embed, view=None)
-                    del QUEUE_MESSAGE_IDS[msg_id]
-                    _persist_queue_message_ids()
+                    if msg_id in QUEUE_MESSAGE_IDS:
+                        del QUEUE_MESSAGE_IDS[msg_id]
+                        _persist_queue_message_ids()
     except Exception as e:
         print(f"Error updating queue message on close: {e}")
 
