@@ -1401,17 +1401,12 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         return {"status": 0, "data": {"error": str(e)}}
 
 
-    # 1. Try Supabase direct upsert if available - handles duplicates natively
-    if USE_SUPABASE_API:
-        print(f"[API_POST_TEST] Using Supabase direct upsert for {username}/{mode_for_api}")
-        success = await supabase_upsert("tests", payload)
-        if success:
-            return {"status": 200, "data": {"success": True}}
-        # else fall through to next method
+async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
+    mode_for_api = get_gamemode_display_name(mode)
 
-    # 2. Try direct PostgreSQL upsert if db_pool available
+    # Primary: Direct PostgreSQL upsert (atomic ON CONFLICT) – most reliable
     if db_pool is not None:
-        print(f"[API_POST_TEST] Using direct DB upsert for {username}/{mode_for_api}")
+        print(f"[API_POST_TEST] DB upsert: {username}/{mode_for_api}")
         success = await db_upsert_test(
             username=username,
             mode=mode_for_api,
@@ -1422,68 +1417,87 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         )
         if success:
             return {"status": 200, "data": {"success": True}}
-        # else fall through
+        print("DB upsert failed, falling back")
 
-    # 3. Fallback: Website API (requires WEBSITE_URL)
+    # Secondary: Supabase REST upsert
+    if USE_SUPABASE_API:
+        print(f"[API_POST_TEST] Supabase upsert: {username}/{mode_for_api}")
+        payload_sb = {
+            "username": username,
+            "mode": mode_for_api,
+            "rank": rank,
+            "testerId": str(tester.id),
+            "testerName": tester.display_name,
+            "ts": int(time.time()),
+        }
+        if await supabase_upsert("tests", payload_sb):
+            return {"status": 200, "data": {"success": True}}
+        print("Supabase upsert failed, falling back")
+
+    # Fallback: Website API – try UPDATE (PUT) first, else DELETE+POST
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
 
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
 
-    # Check for existing test and try to UPDATE it via PATCH
+    # Check if test exists and try to UPDATE it
     try:
-        check_url = f"{WEBSITE_URL}/api/tests?username={username}"
+        check_url = f"{WEBSITE_URL}/api/tests?username={username}&mode={mode_for_api}"
         async with http_session.get(check_url, headers=_auth_headers(), timeout=timeout) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                tests = data.get("data", {}).get("tests", [])
-                normalized_mode = mode_for_api.lower()
-                for test in tests:
-                    test_mode = str(test.get("gamemode", "")).lower()
-                    if test_mode == normalized_mode:
-                        test_id = test.get("id")
-                        if test_id:
-                            print(f"Found existing test for {username}/{test_mode}: id={test_id}, attempting PATCH update")
-                            update_url = f"{WEBSITE_URL}/api/tests/{test_id}"
-                            patch_payload = {
-                                "rank": rank,
-                                "testerId": str(tester.id),
-                                "testerName": tester.display_name,
-                                "ts": int(time.time()),
-                            }
-                            try:
-                                async with http_session.patch(update_url, json=patch_payload, headers=_auth_headers(), timeout=timeout) as patch_resp:
-                                    print(f"PATCH update status: {patch_resp.status}")
-                                    if patch_resp.status in (200, 204):
-                                        return {"status": 200, "data": {"success": True}}
-                                    print("PATCH failed, trying DELETE then POST")
-                            except Exception as e:
-                                print(f"PATCH exception: {e}, will DELETE then POST")
-                            
-                            # PATCH failed - try DELETE then fall through to POST
-                            del_url = f"{WEBSITE_URL}/api/tests/{test_id}"
-                            try:
-                                async with http_session.delete(del_url, headers=_auth_headers(), timeout=timeout) as d_resp:
-                                    print(f"DELETE status: {d_resp.status}")
-                            except Exception as e:
-                                print(f"DELETE failed: {e}")
+                test = data.get("test") or (data.get("tests") or [None])[0]
+                if test and test.get("id"):
+                    test_id = test["id"]
+                    print(f"Updating existing test id={test_id} via PUT")
+                    update_url = f"{WEBSITE_URL}/api/tests/{test_id}"
+                    put_payload = {
+                        "username": username,
+                        "mode": mode_for_api,
+                        "rank": rank,
+                        "testerId": str(tester.id),
+                        "testerName": tester.display_name,
+                        "ts": int(time.time()),
+                    }
+                    try:
+                        async with http_session.put(update_url, json=put_payload, headers=_auth_headers(), timeout=timeout) as put_resp:
+                            if put_resp.status in (200, 204):
+                                return {"status": 200, "data": {"success": True}}
+                            print(f"PUT failed ({put_resp.status}), trying DELETE then POST")
+                    except Exception as e:
+                        print(f"PUT exception: {e}")
+                    # If PUT fails, try DELETE then fall through to POST
+                    try:
+                        async with http_session.delete(update_url, headers=_auth_headers(), timeout=timeout) as d_resp:
+                            print(f"DELETE status: {d_resp.status}")
+                    except Exception as e:
+                        print(f"DELETE failed: {e}")
     except Exception as e:
-        print(f"Error checking/updating duplicate: {e}")
+        print(f"Error during website update: {e}")
 
-    # Insert new test via website API with upsert flag
+    # POST new test with upsert flag (last resort)
     url = f"{WEBSITE_URL}/api/tests"
-    payload_web = payload.copy()
-    payload_web["upsert"] = True
-    print(f"[API_POST_TEST] Sending to website: username={username}, mode={mode_for_api}, rank={rank}")
-
-    async with http_session.post(url, json=payload_web, headers=_auth_headers(), timeout=timeout) as resp:
-        try:
-            data = await resp.json()
-            print(f"[API_POST_TEST] Save response: status={resp.status}, data={data}")
-        except Exception:
-            data = {"error": await resp.text()}
-            print(f"[API_POST_TEST] Save error: {data}")
-        return {"status": resp.status, "data": data}
+    payload = {
+        "username": username,
+        "mode": mode_for_api,
+        "rank": rank,
+        "testerId": str(tester.id),
+        "testerName": tester.display_name,
+        "upsert": True,
+        "ts": int(time.time()),
+    }
+    print(f"[API_POST_TEST] POST to website: {username}/{mode_for_api}")
+    try:
+        async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"error": await resp.text()}
+            print(f"[API_POST_TEST] POST response: {resp.status} – {data}")
+            return {"status": resp.status, "data": data}
+    except Exception as e:
+        print(f"[API_POST_TEST] POST exception: {e}")
+        return {"status": 0, "data": {"error": str(e)}}
 
 
 async def api_rename_player(old_name: str, new_name: str) -> Dict[str, Any]:
