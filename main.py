@@ -1448,8 +1448,13 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
                         if test_id:
                             print(f"Found duplicate test for {username}/{test_mode}: id={test_id}, deleting...")
                             duplicate_test_id = str(test_id)
-                            delete_resp = await api_delete_test(duplicate_test_id)
-                            print(f"Delete result: {delete_resp}")
+                            # Try Supabase delete first if available, else website API
+                            if USE_SUPABASE_API:
+                                delete_ok = await supabase_delete("tests", {"id": test_id})
+                                print(f"Supabase delete result: {delete_ok}")
+                            else:
+                                delete_resp = await api_delete_test(duplicate_test_id)
+                                print(f"API delete result: {delete_resp}")
     except Exception as e:
         print(f"Error checking/deleting duplicate: {e}")
 
