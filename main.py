@@ -2106,6 +2106,11 @@ class QueueActionView(discord.ui.View):
             return
 
         queue["players"].append(QueuePlayer(member.id, linked_mc))
+        await update_queue_message(gamemode)
+        await interaction.response.send_message(
+            f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+            ephemeral=True
+        )
 
     @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
