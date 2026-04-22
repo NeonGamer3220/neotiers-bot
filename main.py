@@ -2205,36 +2205,41 @@ class QueueActionView(discord.ui.View):
 
         queue = ACTIVE_QUEUES.get(gamemode)
         if not queue:
-            # Queue missing from memory - might have been closed already or bot restarted.
-            # Check if the message embed indicates it's still open. If so, allow closing.
-            try:
-                msg = interaction.message
-                if msg and msg.embeds:
-                    title = msg.embeds[0].title or ""
-                    # If the embed still says "Queue" (not closed), treat as still open
-                    if "Queue" in title and "zárva" not in title and "closed" not in title.lower():
-                        # Force-close the queue message without needing ACTIVE_QUEUES entry
-                        embed = discord.Embed(
-                            title=f"{get_gamemode_indicator(gamemode, False)} {get_gamemode_display_name(gamemode)} Queue",
-                            description="A queue zárva van.",
-                            color=get_gamemode_color(gamemode)
-                        )
-                        await msg.edit(embed=embed, view=None)
-                        # Clean up persistence
-                        msg_id = getattr(msg, 'id', None)
-                        if msg_id and msg_id in QUEUE_MESSAGE_IDS:
-                            del QUEUE_MESSAGE_IDS[msg_id]
-                            _persist_queue_message_ids()
-                        await interaction.response.send_message(
-                            f"✅ **{get_gamemode_display_name(gamemode)}** queue bezárva (állapot visszaállítva).",
-                            ephemeral=True
-                        )
-                        # Refresh panel
-                        if interaction.guild:
-                            await refresh_queue_panel(interaction.guild)
-                        return
-            except Exception:
-                pass
+            # Queue missing from memory - attempt to recover by finding the queue message
+            msg_id = None
+            for mid, gm in QUEUE_MESSAGE_IDS.items():
+                if gm == gamemode:
+                    msg_id = mid
+                    break
+            if msg_id:
+                channel_id = QUEUE_CHANNELS.get(gamemode)
+                if channel_id:
+                    channel = bot.get_channel(channel_id)
+                    if channel and isinstance(channel, discord.TextChannel):
+                        try:
+                            msg = await channel.fetch_message(msg_id)
+                            # Check if message still has components (buttons) — if yes, it's still open
+                            if msg.components:
+                                # Force-close the queue message
+                                embed = discord.Embed(
+                                    title=f"{get_gamemode_indicator(gamemode, False)} {get_gamemode_display_name(gamemode)} Queue",
+                                    description="A queue zárva van.",
+                                    color=get_gamemode_color(gamemode)
+                                )
+                                await msg.edit(embed=embed, view=None)
+                                # Clean up persistence
+                                if msg_id in QUEUE_MESSAGE_IDS:
+                                    del QUEUE_MESSAGE_IDS[msg_id]
+                                    _persist_queue_message_ids()
+                                await interaction.response.send_message(
+                                    f"✅ **{get_gamemode_display_name(gamemode)}** queue bezárva (állapot visszaállítva).",
+                                    ephemeral=True
+                                )
+                                if interaction.guild:
+                                    await refresh_queue_panel(interaction.guild)
+                                return
+                        except Exception:
+                            pass
             await interaction.response.send_message("❌ A queue már lezárva vagy nem elérhető.", ephemeral=True)
             return
 
