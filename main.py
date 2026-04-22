@@ -1401,77 +1401,62 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
         return {"status": 0, "data": {"error": str(e)}}
 
 
-async def api_delete_test(test_id: str) -> Dict[str, Any]:
-    """Delete a test entry by ID via the website API"""
-    if not WEBSITE_URL:
-        return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
-
-    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
-    url = f"{WEBSITE_URL}/api/tests/{test_id}"
-
-    try:
-        async with http_session.delete(url, headers=_auth_headers(), timeout=timeout) as resp:
-            try:
-                data = await resp.json()
-            except Exception:
-                data = {"message": await resp.text()}
-            return {"status": resp.status, "data": data}
-    except Exception as e:
-        print(f"Error deleting test {test_id}: {e}")
-        return {"status": 0, "data": {"error": str(e)}}
-
-
 async def api_post_test(username: str, mode: str, rank: str, tester: discord.Member) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"error": "WEBSITE_URL not set"}}
 
+    mode_for_api = get_gamemode_display_name(mode)
+    payload = {
+        "username": username,
+        "mode": mode_for_api,
+        "rank": rank,
+        "testerId": str(tester.id),
+        "testerName": tester.display_name,
+        "ts": int(time.time()),
+    }
+
+    # Use Supabase direct upsert if available - handles duplicates natively
+    if USE_SUPABASE_API:
+        print(f"[API_POST_TEST] Using Supabase direct upsert for {username}/{mode_for_api}")
+        success = await supabase_upsert("tests", payload)
+        if success:
+            print(f"[API_POST_TEST] Supabase upsert succeeded")
+            return {"status": 200, "data": {"success": True}}
+        else:
+            print(f"[API_POST_TEST] Supabase upsert failed")
+            return {"status": 500, "data": {"error": "Supabase upsert failed"}}
+
+    # Fallback: Website API with manual duplicate deletion
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
 
-    # First, check for and delete any duplicates for this mode
-    # Use proper display name for checking
-    mode_for_api = get_gamemode_display_name(mode)
-    duplicate_test_id = None
+    # Check for existing test and delete it
     try:
-        # Get all tests for this user
         check_url = f"{WEBSITE_URL}/api/tests?username={username}"
         async with http_session.get(check_url, headers=_auth_headers(), timeout=timeout) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 tests = data.get("data", {}).get("tests", [])
-                # Find duplicates for this mode (case-insensitive)
                 normalized_mode = mode_for_api.lower()
                 for test in tests:
                     test_mode = str(test.get("gamemode", "")).lower()
                     if test_mode == normalized_mode:
-                        # Found existing entry - delete it before inserting new one
                         test_id = test.get("id")
                         if test_id:
                             print(f"Found duplicate test for {username}/{test_mode}: id={test_id}, deleting...")
-                            duplicate_test_id = str(test_id)
-                            # Try Supabase delete first if available, else website API
-                            if USE_SUPABASE_API:
-                                delete_ok = await supabase_delete("tests", {"id": test_id})
-                                print(f"Supabase delete result: {delete_ok}")
-                            else:
-                                delete_resp = await api_delete_test(duplicate_test_id)
-                                print(f"API delete result: {delete_resp}")
+                            # Try website API delete
+                            delete_url = f"{WEBSITE_URL}/api/tests/{test_id}"
+                            try:
+                                async with http_session.delete(delete_url, headers=_auth_headers(), timeout=timeout) as d_resp:
+                                    print(f"Delete API status: {d_resp.status}")
+                            except Exception as e:
+                                print(f"Delete failed: {e}")
     except Exception as e:
         print(f"Error checking/deleting duplicate: {e}")
 
+    # Insert new test with upsert flag
     url = f"{WEBSITE_URL}/api/tests"
-    # Use proper display name for mode (not lowercase)
-    mode_for_api = get_gamemode_display_name(mode)
-
-    payload = {
-        "username": username,
-        "mode": mode_for_api,  # Use proper casing like "Sword", "NethPot", etc.
-        "rank": rank,
-        "testerId": str(tester.id),
-        "testerName": tester.display_name,
-        "upsert": True,
-        "ts": int(time.time()),
-    }
-    print(f"[API_POST_TEST] Sending: username={username}, mode={mode.lower()}, rank={rank}, upsert=True")
+    payload["upsert"] = True
+    print(f"[API_POST_TEST] Sending: username={username}, mode={mode_for_api}, rank={rank}")
 
     async with http_session.post(url, json=payload, headers=_auth_headers(), timeout=timeout) as resp:
         try:
