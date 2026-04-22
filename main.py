@@ -2101,10 +2101,10 @@ class QueueActionView(discord.ui.View):
             return
 
         if is_gamemode_tester_or_admin(member, gamemode):
-            queue["testers"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(gamemode)
+            view = JoinAsChoiceView(gamemode, member, linked_mc)
             await interaction.response.send_message(
-                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+                'Tesztelő rangú vagy. Válaszd, hogy játékosként vagy teszterként szeretnél belépni:',
+                view=view,
                 ephemeral=True
             )
             return
@@ -2135,44 +2135,7 @@ class QueueActionView(discord.ui.View):
             f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
             ephemeral=True
         )
-            return
-
-        # Testers bypass
-        if is_gamemode_tester_or_admin(member, gamemode):
-            queue["testers"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(gamemode)
-            await interaction.response.send_message(
-                f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
-                ephemeral=False
-            )
-            return
-
-        cd_left = cooldown_left(member.id, gamemode)
-        if cd_left > 0:
-            days = cd_left // (24 * 60 * 60)
-            hours = (cd_left % (24 * 60 * 60)) // (60 * 60)
-            await interaction.response.send_message(
-                f"❌ Még **{days} nap {hours} óra** cooldown van hátra a **{get_gamemode_display_name(gamemode)}** módban. "
-                f"Várj a cooldown lejártáig, mielőtt újra queue-hoz csatlakozol.",
-                ephemeral=False
-            )
-            return
-
-        player_rank = await get_player_rank_for_mode(linked_mc, gamemode)
-        if not can_join_queue(player_rank):
-            await interaction.response.send_message(
-                f"❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. "
-                f"Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).",
-                ephemeral=False
-            )
-            return
-
-        queue["players"].append(QueuePlayer(member.id, linked_mc))
-        await update_queue_message(gamemode)
-        await interaction.response.send_message(
-            f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
-            ephemeral=False
-        )
+        return
 
     @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4415,5 +4378,81 @@ async def db_delete_test(test_id: str) -> bool:
         return False
 
 
-if __name__ == "__main__":
+class JoinAsChoiceView(discord.ui.View):
+    def __init__(self, gamemode: str, member: discord.Member, linked_mc: str):
+        super().__init__(timeout=30)
+        self.gamemode = gamemode
+        self.member = member
+        self.linked_mc = linked_mc
+
+    @discord.ui.button(label='Játékosként', style=discord.ButtonStyle.success, custom_id='join_choice_player')
+    async def join_as_player(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message('Csak a kattintó használhatja ezt a gombot.', ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message('A queue már nem létezik.', ephemeral=True)
+            return
+        if any(p.discord_id == self.member.id for p in queue['players']):
+            await interaction.response.send_message('Már benne vagy a queue-ban játékosként!', ephemeral=True)
+            self.stop()
+            return
+        if any(t.discord_id == self.member.id for t in queue.get('testers', [])):
+            await interaction.response.send_message('Már benna van a queue-ban teszterként!', ephemeral=True)
+            self.stop()
+            return
+        cd_left = cooldown_left(self.member.id, self.gamemode)
+        if cd_left > 0:
+            days = cd_left // (24 * 60 * 60)
+            hours = (cd_left % (24 * 60 * 60)) // (60 * 60)
+            await interaction.response.send_message(
+                f'❌ Még **{days} nap {hours} óra** cooldown van hátra a **{get_gamemode_display_name(self.gamemode)}** módban. '
+                f'Várj a cooldown lejártáig, mielőtt újra queue-hoz csatlakozol.',
+                ephemeral=True
+            )
+            return
+        player_rank = await get_player_rank_for_mode(self.linked_mc, self.gamemode)
+        if not can_join_queue(player_rank):
+            await interaction.response.send_message(
+                f'❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. '
+                f'Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).',
+                ephemeral=True
+            )
+            return
+        queue['players'].append(QueuePlayer(self.member.id, self.linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message(
+            f'✅ Beléptél a **{get_gamemode_display_name(self.gamemode)}** queue-ba játékosként!',
+            ephemeral=True
+        )
+        self.stop()
+
+    @discord.ui.button(label='Tesztként', style=discord.ButtonStyle.secondary, custom_id='join_choice_tester')
+    async def join_as_tester(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message('Csak a kattintó használhatja ezt a gombot.', ephemeral=True)
+            return
+        queue = ACTIVE_QUEUES.get(self.gamemode)
+        if not queue:
+            await interaction.response.send_message('A queue már nem létezik.', ephemeral=True)
+            return
+        if any(p.discord_id == self.member.id for p in queue['players']):
+            await interaction.response.send_message('Már benne vagy a queue-ban játékosként!', ephemeral=True)
+            self.stop()
+            return
+        if any(t.discord_id == self.member.id for t in queue.get('testers', [])):
+            await interaction.response.send_message('Már benna van a queue-ban teszterként!', ephemeral=True)
+            self.stop()
+            return
+        queue['testers'].append(QueuePlayer(self.member.id, self.linked_mc))
+        await update_queue_message(self.gamemode)
+        await interaction.response.send_message(
+            f'✅ Beléptél teszterként a **{get_gamemode_display_name(self.gamemode)}** queue-ba!',
+            ephemeral=True
+        )
+        self.stop()
+
+
+if __name__ == '__main__':
     asyncio.run(main())
