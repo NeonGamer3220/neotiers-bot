@@ -2073,16 +2073,6 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        # Rank check: only LT5-HT4 can join queues
-        player_rank = await get_player_rank_for_mode(linked_mc, gamemode)
-        if not can_join_queue(player_rank):
-            await interaction.response.send_message(
-                f"❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. "
-                f"Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).",
-                ephemeral=True
-            )
-            return
-
         # Cooldown check: prevent users with active cooldown from joining queue
         cd_left = cooldown_left(member.id, gamemode)
         if cd_left > 0:
@@ -2095,7 +2085,7 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        # Check if user is a tester for THIS specific gamemode (or admin/debug)
+        # Check if user is a tester for THIS specific gamemode (or admin/debug) - TESTERS BYPASS RANK CHECK
         if is_gamemode_tester_or_admin(member, gamemode):
             queue["testers"].append(QueuePlayer(member.id, linked_mc))
             await update_queue_message(gamemode)
@@ -2103,13 +2093,19 @@ class QueueActionView(discord.ui.View):
                 f"✅ Beléptél teszterként a **{get_gamemode_display_name(gamemode)}** queue-ba!",
                 ephemeral=True
             )
-        else:
-            queue["players"].append(QueuePlayer(member.id, linked_mc))
-            await update_queue_message(gamemode)
+            return
+
+        # Rank check: only LT5-HT4 can join queues (regular players)
+        player_rank = await get_player_rank_for_mode(linked_mc, gamemode)
+        if not can_join_queue(player_rank):
             await interaction.response.send_message(
-                f"✅ Beléptél a **{get_gamemode_display_name(gamemode)}** queue-ba!",
+                f"❌ Csak **LT5-HT4** közöttiek csatlakozhatnak a queue-hoz. "
+                f"Rangod: **{player_rank}** (minimum: LT5, maximum: HT4).",
                 ephemeral=True
             )
+            return
+
+        queue["players"].append(QueuePlayer(member.id, linked_mc))
 
     @discord.ui.button(label="Kilépés a queue-ból", style=discord.ButtonStyle.danger, custom_id="queue_leave")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
