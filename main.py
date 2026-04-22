@@ -3051,6 +3051,47 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
             await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
             return
 
+        # Pre-delete any conflicting tests for newname in modes that oldname has
+        try:
+            # Fetch old player's tests to get their modes
+            old_tests_url = f"{WEBSITE_URL}/api/tests?username={oldname}"
+            async with http_session.get(old_tests_url, headers=_auth_headers(), timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)) as old_resp:
+                if old_resp.status == 200:
+                    old_data = await old_resp.json()
+                    old_tests = old_data.get("data", {}).get("tests", [])
+                    old_modes = {t.get("gamemode", "").lower() for t in old_tests if t.get("gamemode")}
+                else:
+                    old_modes = set()
+        except Exception as e:
+            print(f"Error fetching old tests for conflict check: {e}")
+            old_modes = set()
+
+        if old_modes:
+            try:
+                # Fetch new player's tests to find conflicts
+                new_tests_url = f"{WEBSITE_URL}/api/tests?username={newname}"
+                async with http_session.get(new_tests_url, headers=_auth_headers(), timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)) as new_resp:
+                    if new_resp.status == 200:
+                        new_data = await new_resp.json()
+                        new_tests = new_data.get("data", {}).get("tests", [])
+                        for test in new_tests:
+                            test_mode = test.get("gamemode", "").lower()
+                            if test_mode in old_modes:
+                                test_id = test.get("id")
+                                if test_id:
+                                    print(f"Deleting conflicting test for {newname}/{test_mode}: id={test_id}")
+                                    if USE_SUPABASE_API:
+                                        await supabase_delete("tests", {"id": test_id})
+                                    else:
+                                        try:
+                                            del_url = f"{WEBSITE_URL}/api/tests/{test_id}"
+                                            async with http_session.delete(del_url, headers=_auth_headers(), timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)) as d_resp:
+                                                print(f"Delete conflict test status: {d_resp.status}")
+                                        except Exception as e:
+                                            print(f"Failed to delete conflicting test {test_id}: {e}")
+            except Exception as e:
+                print(f"Error checking/deleting conflicts for {newname}: {e}")
+
         result = await api_rename_player(old_name=oldname, new_name=newname)
         status = result.get("status")
         data = result.get("data", {})
