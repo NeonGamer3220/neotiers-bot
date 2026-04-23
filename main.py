@@ -4013,6 +4013,57 @@ async def cooldown(interaction: discord.Interaction, user: discord.User = None):
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="resetcooldown", description="Játékos cooldownjának törlése (staff csak)")
+@app_commands.describe(
+    user="Játékos akinek törölni kell a cooldownját",
+    gamemode="Játékmód (opcionális, ha üres akkor minden játékmódban törlődik)"
+)
+async def resetcooldown(interaction: discord.Interaction, user: discord.User, gamemode: str = None):
+    await interaction.response.defer(ephemeral=True)
+
+    # Check if user is staff
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        await interaction.followup.send("Hiba: Guild context szükséges.", ephemeral=True)
+        return
+
+    if not is_staff_member(interaction.user):
+        await interaction.followup.send("Nincs jogosultságod cooldown törléséhez.", ephemeral=True)
+        return
+
+    try:
+        data = _load_data()
+        user_id_str = str(user.id)
+        cooldowns = data.get("cooldowns", {})
+
+        if gamemode:
+            # Normalize gamemode
+            gamemode_key = normalize_gamemode(gamemode)
+            # Validate gamemode
+            valid_modes = [key for _, key, _ in TICKET_TYPES]
+            if gamemode_key not in valid_modes:
+                await interaction.followup.send(f"❌ Érvénytelen játékmód: {gamemode}", ephemeral=True)
+                return
+
+            if user_id_str in cooldowns and gamemode_key in cooldowns.get(user_id_str, {}):
+                del cooldowns[user_id_str][gamemode_key]
+                _save_data(data)
+                mode_display = get_gamemode_display_name(gamemode_key)
+                await interaction.followup.send(f"✅ **{user.display_name}** cooldownja törölve a **{mode_display}** játékmódban!", ephemeral=True)
+            else:
+                await interaction.followup.send(f"ℹ️ **{user.display_name}** nem rendelkezik cooldownnal a **{gamemode}** játékmódban.", ephemeral=True)
+        else:
+            # Reset all cooldowns for user
+            if user_id_str in cooldowns:
+                del cooldowns[user_id_str]
+                _save_data(data)
+                await interaction.followup.send(f"✅ **{user.display_name}** összes cooldownja törölve!", ephemeral=True)
+            else:
+                await interaction.followup.send(f"ℹ️ **{user.display_name}** nem rendelkezik cooldownnal.", ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @app_commands.command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
 @app_commands.describe(
     code="A Minecraftban kapott összekapcsolási kód (opcionális, ha még nincs kódod)"
