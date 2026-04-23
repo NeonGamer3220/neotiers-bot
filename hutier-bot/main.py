@@ -1245,6 +1245,7 @@ def can_open_ticket(rank: str) -> bool:
     Can open ticket if rank is LT3 or above (points >= 6) and not banned.
     Ranks: LT5(1) < HT5(2) < LT4(3) < HT4(4) < LT3(6) < HT3(8) < LT2(10) < HT2(12) < LT1(14) < HT1(18)
     """
+    rank = str(rank)
     return get_rank_value_min(rank) >= 6 and rank != "1496877749388972143"  # LT3 = 6 points
 
 
@@ -1253,6 +1254,7 @@ def can_join_queue(rank: str) -> bool:
     Can join queue if rank is between LT5 and HT4 (inclusive), or Unranked.
     That's points 0-4 inclusive (Unranked=0, LT5=1, HT5=2, LT4=3, HT4=4).
     """
+    rank = str(rank)
     pts = get_rank_value_min(rank)
     return pts <= 4 and rank != "1496877749388972143"  # Unranked(0), LT5(1), HT5(2), LT4(3), HT4=4 all allowed
 
