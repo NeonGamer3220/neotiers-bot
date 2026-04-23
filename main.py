@@ -370,9 +370,9 @@ POINTS = {
     "Unranked": 0,
     "LT5": 1, "HT5": 2,
     "LT4": 3, "HT4": 4,
-    "LT3": 6, "HT3": 8,
-    "LT2": 10, "HT2": 12,
-    "LT1": 14, "HT1": 18,
+    "LT3": 6, "HT3": 10,
+    "LT2": 16, "HT2": 28,
+    "LT1": 40, "HT1": 60,
 }
 
 # Mapping from database gamemode names to bot code keys
