@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+data.json
+links.json
+bans.json
+pending_links.json
+*_backup.py
+*.log
+test_history.json
