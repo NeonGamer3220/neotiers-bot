@@ -2102,14 +2102,13 @@ class QueueActionView(discord.ui.View):
             )
             return
 
-        if is_gamemode_tester_or_admin(member, gamemode):
-            view = JoinAsChoiceView(gamemode, member, linked_mc)
-            await interaction.response.send_message(
-                'Tesztelő rangú vagy. Válaszd, hogy játékosként vagy teszterként szeretnél belépni:',
-                view=view,
-                ephemeral=True
-            )
-            return
+        view = JoinAsChoiceView(gamemode, member, linked_mc)
+        await interaction.response.send_message(
+            'Válaszd, hogy játékosként vagy teszterként szeretnél belépni:',
+            view=view,
+            ephemeral=True
+        )
+        return
 
         cd_left = cooldown_left(member.id, gamemode)
         if cd_left > 0:
@@ -4438,7 +4437,7 @@ class JoinAsChoiceView(discord.ui.View):
         self.member = member
         self.linked_mc = linked_mc
 
-    @discord.ui.button(label='Játékosként', style=discord.ButtonStyle.success, custom_id='join_choice_player')
+    @discord.ui.button(label='Belépés játékosként', style=discord.ButtonStyle.success, custom_id='join_choice_player')
     async def join_as_player(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.member.id:
             await interaction.response.send_message('Csak a kattintó használhatja ezt a gombot.', ephemeral=True)
@@ -4481,7 +4480,7 @@ class JoinAsChoiceView(discord.ui.View):
         )
         self.stop()
 
-    @discord.ui.button(label='Tesztként', style=discord.ButtonStyle.secondary, custom_id='join_choice_tester')
+    @discord.ui.button(label='Belépés teszterként', style=discord.ButtonStyle.secondary, custom_id='join_choice_tester')
     async def join_as_tester(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.member.id:
             await interaction.response.send_message('Csak a kattintó használhatja ezt a gombot.', ephemeral=True)
