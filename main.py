@@ -3031,9 +3031,13 @@ async def testresult(
 
         tiers_text = f"{display_columns[0]}\n\n{display_columns[1]}\n\n{display_columns[2]}"
 
+        # Get gamemode indicator emoji
+        mode_key_for_indicator = normalize_gamemode(mode_val)
+        indicator = get_gamemode_indicator(mode_key_for_indicator)
+
         embed = discord.Embed(
             title="Teszt eredmény",
-            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak **{display_mode}** játékmódból.\n\n{tiers_text}",
+            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak {indicator} **{display_mode}** játékmódból.\n\n{tiers_text}",
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=skin_url)
