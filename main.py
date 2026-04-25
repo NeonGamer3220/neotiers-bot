@@ -474,6 +474,9 @@ def get_gamemode_color(mode_key: str) -> discord.Color:
     """Get the color for a gamemode"""
     if not mode_key:
         return discord.Color.default()
+    # Retired ranks (starting with R) are purple
+    if mode_key.upper().startswith("R"):
+        return discord.Color.purple()
     color_val = GAMEMODE_COLORS.get(mode_key.lower().strip())
     if color_val is not None:
         return discord.Color(value=color_val)
@@ -1259,6 +1262,26 @@ def can_join_queue(rank: str) -> bool:
     return pts <= 4 and rank != "1496877749388972143"  # Unranked(0), LT5(1), HT5(2), LT4(3), HT4=4 all allowed
 
 
+async def is_player_fully_retired(username: str) -> bool:
+    """
+    Check if a player is fully retired (has any retired rank across gamemodes).
+    """
+    if not WEBSITE_URL:
+        return False
+    try:
+        res = await api_get_tests(username=username)
+        if res.get("status") == 200:
+            data = res.get("data", {})
+            tests = data.get("tests", [])
+            for test in tests:
+                rank = str(test.get("rank", ""))
+                if rank.startswith("R"):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -1895,6 +1918,14 @@ class TicketButton(discord.ui.Button):
             except Exception:
                 pass
 
+        # Check if fully retired
+        if await is_player_fully_retired(linked_minecraft):
+            await interaction.response.send_message(
+                "❌ Teljes nyugdíjas vagy! Nem nyithatsz ticketeket.",
+                ephemeral=True
+            )
+            return
+
         player_rank = await get_player_rank_for_mode(linked_minecraft, self.mode_key)
         if not can_open_ticket(player_rank):
             await interaction.response.send_message(
@@ -2100,6 +2131,14 @@ class QueueActionView(discord.ui.View):
         if not linked_mc:
             await interaction.response.send_message(
                 "❌ Nincs összekapcsolva a Minecraft fiókod! Használd a `/link` parancsot.",
+                ephemeral=True
+            )
+            return
+
+        # Check if fully retired
+        if await is_player_fully_retired(linked_mc):
+            await interaction.response.send_message(
+                "❌ Teljes nyugdíjas vagy! Nem csatlakozhatsz queue-hoz.",
                 ephemeral=True
             )
             return
@@ -3612,6 +3651,173 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="fullretire", description="Játékos teljes nyugdíjazása minden tesztelt gamemódban (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán"
+)
+async def fullretire(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # Get all tests for the player
+        url = f"{WEBSITE_URL}/api/tests?username={name}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            tests = data.get("tests", [])
+            if not tests:
+                await interaction.followup.send(
+                    f"❌ Játékos nem találva vagy nincs tesztelve: **{name}**.",
+                    ephemeral=True
+                )
+                return
+
+        # Retire in each gamemode
+        retired_modes = []
+        errors = []
+
+        for test in tests:
+            gamemode = test.get("gamemode", "").lower()
+            current_rank = test.get("rank", "")
+            if not current_rank or current_rank.startswith("R"):
+                continue  # Already retired or invalid
+
+            # Call the website API to retire (upsert with R prefix)
+            retire_url = f"{WEBSITE_URL}/api/tests"
+            payload = {
+                "username": name,
+                "gamemode": gamemode,
+                "rank": f"R{current_rank}",
+                "points": POINTS.get(current_rank, 0),  # Keep same points
+                "retired": True
+            }
+
+            try:
+                async with http_session.post(retire_url, json=payload, headers=_auth_headers(), timeout=timeout) as retire_resp:
+                    if retire_resp.status == 200:
+                        retired_modes.append(f"{gamemode} ({current_rank} → R{current_rank})")
+                    else:
+                        errors.append(f"{gamemode}: {retire_resp.status}")
+            except Exception as e:
+                errors.append(f"{gamemode}: {e}")
+
+        # Build response
+        msg_parts = [f"✅ **{name}** teljes nyugdíjazása:"]
+        if retired_modes:
+            msg_parts.append(f"**Nyugdíjazott módok:**\n" + "\n".join(f"• {mode}" for mode in retired_modes))
+        if errors:
+            msg_parts.append(f"**Hibák:**\n" + "\n".join(f"• {err}" for err in errors))
+
+        await interaction.followup.send("\n\n".join(msg_parts), ephemeral=True)
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="fullunretire", description="Játékos visszahozása teljes nyugdíjból minden gamemódban (admin csak).")
+@app_commands.describe(
+    name="A játékos neve a tierlistán"
+)
+async def fullunretire(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if not WEBSITE_URL:
+            await interaction.followup.send("⚠️ WEBSITE_URL nincs beállítva.", ephemeral=True)
+            return
+
+        # Get all tests for the player
+        url = f"{WEBSITE_URL}/api/tests?username={name}"
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {}
+
+            if resp.status != 200:
+                await interaction.followup.send(f"⚠️ Hiba a weboldal lekérésekor: {resp.status}", ephemeral=True)
+                return
+
+            tests = data.get("tests", [])
+            if not tests:
+                await interaction.followup.send(
+                    f"❌ Játékos nem találva vagy nincs tesztelve: **{name}**.",
+                    ephemeral=True
+                )
+                return
+
+        # Unretire in each gamemode
+        unretired_modes = []
+        errors = []
+
+        for test in tests:
+            gamemode = test.get("gamemode", "").lower()
+            current_rank = test.get("rank", "")
+            if not current_rank or not current_rank.startswith("R"):
+                continue  # Not retired or invalid
+
+            original_rank = current_rank[1:]  # Remove R prefix
+
+            # Upsert back to original rank
+            post_url = f"{WEBSITE_URL}/api/tests"
+            payload = {
+                "username": name,
+                "gamemode": gamemode,
+                "rank": original_rank,
+                "points": POINTS.get(original_rank, 0)
+            }
+
+            try:
+                async with http_session.post(post_url, json=payload, headers=_auth_headers(), timeout=timeout) as post_resp:
+                    if post_resp.status == 200:
+                        unretired_modes.append(f"{gamemode} (R{original_rank} → {original_rank})")
+                    else:
+                        errors.append(f"{gamemode}: {post_resp.status}")
+            except Exception as e:
+                errors.append(f"{gamemode}: {e}")
+
+        # Build response
+        msg_parts = [f"✅ **{name}** visszahozatala teljes nyugdíjból:"]
+        if unretired_modes:
+            msg_parts.append(f"**Visszahozott módok:**\n" + "\n".join(f"• {mode}" for mode in unretired_modes))
+        if errors:
+            msg_parts.append(f"**Hibák:**\n" + "\n".join(f"• {err}" for err in errors))
+
+        await interaction.followup.send("\n\n".join(msg_parts), ephemeral=True)
+
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ Web timeout.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @app_commands.command(name="tierlistban", description="Játékos kitiltása a tesztelésből (admin csak).")
 @app_commands.describe(
     name="A játékos neve a tierlistán",
@@ -4400,6 +4606,8 @@ async def main():
         bot.tree.add_command(spin, guild=g)
         bot.tree.add_command(retire, guild=g)
         bot.tree.add_command(unretire, guild=g)
+        bot.tree.add_command(fullretire, guild=g)
+        bot.tree.add_command(fullunretire, guild=g)
         bot.tree.add_command(tierlistban, guild=g)
         bot.tree.add_command(tierlistunban, guild=g)
         bot.tree.add_command(removetierlist, guild=g)
@@ -4420,6 +4628,8 @@ async def main():
         bot.tree.add_command(spin)
         bot.tree.add_command(retire)
         bot.tree.add_command(unretire)
+        bot.tree.add_command(fullretire)
+        bot.tree.add_command(fullunretire)
         bot.tree.add_command(tierlistban)
         bot.tree.add_command(tierlistunban)
         bot.tree.add_command(removetierlist)
