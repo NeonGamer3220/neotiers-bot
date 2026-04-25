@@ -3015,7 +3015,8 @@ async def testresult(
         for key in gamemode_keys:
             display = GAMEMODE_DISPLAY_NAMES.get(key, key)
             rank = tiers.get(key, "Unranked")
-            lines.append(f"{display}: {rank}")
+            # Make the tier bold
+            lines.append(f"{display}: **{rank}**")
 
         # Create 3 columns, each with up to 4 lines
         display_columns = []
@@ -3028,12 +3029,12 @@ async def testresult(
                     col_lines.append(lines[idx])
             display_columns.append("\n".join(col_lines))
 
-        tiers_text = f"```\n{display_columns[0]}\n\n{display_columns[1]}\n\n{display_columns[2]}\n```"
+        tiers_text = f"{display_columns[0]}\n\n{display_columns[1]}\n\n{display_columns[2]}"
 
         embed = discord.Embed(
             title="Teszt eredmény",
-            description=f"{tester.display_name} {display_rank_val} tiert adott {display_username} játékosnak {display_mode} játékmódból.\n\n{tiers_text}",
-            color=discord.Color.dark_grey()
+            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak {display_mode} játékmódból.\n\n{tiers_text}",
+            color=discord.Color.purple()
         )
         embed.set_thumbnail(url=skin_url)
         embed.set_footer(text=f"Időpont: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
