@@ -3694,26 +3694,27 @@ async def fullretire(interaction: discord.Interaction, name: str):
         errors = []
 
         for test in tests:
-            gamemode = test.get("gamemode", "").lower()
+            gamemode_key = test.get("gamemode", "").lower()
+            gamemode_display = get_gamemode_display_name(gamemode_key)
             current_rank = test.get("rank", "")
             if not current_rank or current_rank.startswith("R"):
                 continue  # Already retired or invalid
 
             # Remove the current entry first
             try:
-                remove_result = await api_remove_player(username=name, gamemode=gamemode)
+                remove_result = await api_remove_player(username=name, gamemode=gamemode_display)
                 if not remove_result.get("status") in (200, 204):
-                    errors.append(f"{gamemode}: failed to remove current rank")
+                    errors.append(f"{gamemode_display}: failed to remove current rank ({remove_result.get('status')})")
                     continue
             except Exception as e:
-                errors.append(f"{gamemode}: remove error {e}")
+                errors.append(f"{gamemode_display}: remove error {e}")
                 continue
 
             # Add the retired rank
             retire_url = f"{WEBSITE_URL}/api/tests"
             payload = {
                 "username": name,
-                "gamemode": gamemode,
+                "gamemode": gamemode_display,
                 "rank": f"R{current_rank}",
                 "points": POINTS.get(current_rank, 0),  # Keep same points
                 "retired": True
@@ -3722,11 +3723,11 @@ async def fullretire(interaction: discord.Interaction, name: str):
             try:
                 async with http_session.post(retire_url, json=payload, headers=_auth_headers(), timeout=timeout) as retire_resp:
                     if retire_resp.status == 200:
-                        retired_modes.append(f"{gamemode} ({current_rank} → R{current_rank})")
+                        retired_modes.append(f"{gamemode_display} ({current_rank} → R{current_rank})")
                     else:
-                        errors.append(f"{gamemode}: {retire_resp.status}")
+                        errors.append(f"{gamemode_display}: {retire_resp.status}")
             except Exception as e:
-                errors.append(f"{gamemode}: {e}")
+                errors.append(f"{gamemode_display}: {e}")
 
         # Build response
         msg_parts = [f"✅ **{name}** teljes nyugdíjazása:"]
@@ -3787,7 +3788,8 @@ async def fullunretire(interaction: discord.Interaction, name: str):
         errors = []
 
         for test in tests:
-            gamemode = test.get("gamemode", "").lower()
+            gamemode_key = test.get("gamemode", "").lower()
+            gamemode_display = get_gamemode_display_name(gamemode_key)
             current_rank = test.get("rank", "")
             if not current_rank or not current_rank.startswith("R"):
                 continue
@@ -3796,19 +3798,19 @@ async def fullunretire(interaction: discord.Interaction, name: str):
 
             # Remove the retired entry first
             try:
-                remove_result = await api_remove_player(username=name, gamemode=gamemode)
+                remove_result = await api_remove_player(username=name, gamemode=gamemode_display)
                 if not remove_result.get("status") in (200, 204):
-                    errors.append(f"{gamemode}: failed to remove retired rank")
+                    errors.append(f"{gamemode_display}: failed to remove retired rank ({remove_result.get('status')})")
                     continue
             except Exception as e:
-                errors.append(f"{gamemode}: remove error {e}")
+                errors.append(f"{gamemode_display}: remove error {e}")
                 continue
 
             # Add back the original rank
             post_url = f"{WEBSITE_URL}/api/tests"
             payload = {
                 "username": name,
-                "gamemode": gamemode,
+                "gamemode": gamemode_display,
                 "rank": original_rank,
                 "points": POINTS.get(original_rank, 0)
             }
@@ -3816,11 +3818,11 @@ async def fullunretire(interaction: discord.Interaction, name: str):
             try:
                 async with http_session.post(post_url, json=payload, headers=_auth_headers(), timeout=timeout) as post_resp:
                     if post_resp.status == 200:
-                        unretired_modes.append(f"{gamemode} (R{original_rank} → {original_rank})")
+                        unretired_modes.append(f"{gamemode_display} (R{original_rank} → {original_rank})")
                     else:
-                        errors.append(f"{gamemode}: {post_resp.status}")
+                        errors.append(f"{gamemode_display}: {post_resp.status}")
             except Exception as e:
-                errors.append(f"{gamemode}: {e}")
+                errors.append(f"{gamemode_display}: {e}")
 
         # Build response
         msg_parts = [f"✅ **{name}** visszahozatala teljes nyugdíjból:"]
