@@ -456,7 +456,7 @@ GAMEMODE_INDICATORS = {
     "creeper": "<:Creeper:1489190838763393104>",
     "diasmp": "<:DiaSMP:1489190856903757884>",
     "ogvanilla": "<:OGVanilla:1489190908477046804>",
-    "shieldlessuhc": "🟠",  # No custom emoji provided
+    "shieldlessuhc": "🟠",  # Custom emoji not provided
     "spearmace": "<:SpearMace:1489190973400416359>",
     "spearelytra": "<:SpearElytra:1489190973400416359>",
 }
