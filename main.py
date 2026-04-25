@@ -1383,7 +1383,9 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"tests": []}}
 
-    url = f"{WEBSITE_URL}/api/tests?username={username}&gamemode={mode}"
+    url = f"{WEBSITE_URL}/api/tests?username={username}"
+    if mode:
+        url += f"&gamemode={mode}"
     print(f"[API_GET_TESTS] Requesting: {url}")
 
     try:
@@ -2993,16 +2995,48 @@ async def testresult(
         display_prev_rank = prev_rank
         display_rank_val = rank_val
 
+        # Fetch all tests for the player to list previous tiers
+        all_tests_res = await api_get_tests(username=username, mode="")
+        all_tests = all_tests_res.get("data", {}).get("tests", []) if all_tests_res.get("status") == 200 else []
+
+        # Group by gamemode, get best rank per mode
+        tiers = {}
+        for test in all_tests:
+            mode_raw = test.get("gamemode", "")
+            mode_key = normalize_gamemode(mode_raw)
+            rank = test.get("rank", "Unranked")
+            points = POINTS.get(rank, 0)
+            if mode_key not in tiers or points > POINTS.get(tiers[mode_key], 0):
+                tiers[mode_key] = rank
+
+        # Format tiers in 3 columns, 4 gamemodes per column
+        gamemode_keys = sorted(GAMEMODE_DISPLAY_NAMES.keys())
+        lines = []
+        for key in gamemode_keys:
+            display = GAMEMODE_DISPLAY_NAMES.get(key, key)
+            rank = tiers.get(key, "Unranked")
+            lines.append(f"{display}: {rank}")
+
+        # Create 3 columns, each with up to 4 lines
+        display_columns = []
+        max_cols = 3
+        for i in range(max_cols):
+            col_lines = []
+            for j in range(4):
+                idx = i * 4 + j
+                if idx < len(lines):
+                    col_lines.append(lines[idx])
+            display_columns.append("\n".join(col_lines))
+
+        tiers_text = f"```\n{display_columns[0]}\n\n{display_columns[1]}\n\n{display_columns[2]}\n```"
+
         embed = discord.Embed(
-            title=f"{display_username} teszt eredménye 🏆",
+            title="Teszt eredmény",
+            description=f"{tester.display_name} {display_rank_val} tiert adott {display_username} játékosnak {display_mode} játékmódból.\n\n{tiers_text}",
             color=discord.Color.dark_grey()
         )
         embed.set_thumbnail(url=skin_url)
-        embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
-        embed.add_field(name="Játékmód:", value=display_mode, inline=False)
-        embed.add_field(name="Minecraft név:", value=display_username, inline=False)
-        embed.add_field(name="Előző rang:", value=display_prev_rank, inline=False)
-        embed.add_field(name="Elért rang:", value=display_rank_val, inline=False)
+        embed.set_footer(text=f"Időpont: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Only send to the results channel (eredmenyek), not the command channel
         # ALWAYS save to website first (UPsert)
