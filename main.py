@@ -3033,7 +3033,7 @@ async def testresult(
 
         embed = discord.Embed(
             title="Teszt eredmény",
-            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak {display_mode} játékmódból.\n\n{tiers_text}",
+            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak **{display_mode}** játékmódból.\n\n{tiers_text}",
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=skin_url)
