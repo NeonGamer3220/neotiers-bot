@@ -4581,18 +4581,29 @@ async def on_ready():
 async def main():
     global http_session
 
+    print("Starting NeoTiers Bot...")
+    print(f"Discord.py version: {discord.__version__}")
+    print(f"Python version: {sys.version}")
+
     if not DISCORD_TOKEN:
         raise RuntimeError("DISCORD_TOKEN is missing")
 
+    print("Initializing database...")
     # Initialize database
     await init_db()
 
+    print("Initializing HTTP session...")
     # Initialize http_session BEFORE starting health server
     http_session = aiohttp.ClientSession()
 
-    # health server - must start AFTER http_session is ready
-    asyncio.create_task(start_health_server())
+    # health server - only start on Railway (not needed on Render)
+    if os.getenv('RAILWAY_ENVIRONMENT'):
+        print("Starting health server (Railway environment detected)...")
+        asyncio.create_task(start_health_server())
+    else:
+        print("Skipping health server (not Railway environment)")
 
+    print("Starting queue maintenance task...")
     # queue maintenance task
     asyncio.create_task(queue_maintenance_task())
 
@@ -4643,8 +4654,13 @@ async def main():
         bot.tree.add_command(mylink)
 
     try:
+        print(f"Connecting to Discord with token: {DISCORD_TOKEN[:10]}...")
         await bot.start(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"Failed to start bot: {type(e).__name__}: {e}")
+        raise
     finally:
+        print("Shutting down...")
         if http_session:
             await http_session.close()
         await close_db()
