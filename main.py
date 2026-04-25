@@ -3699,7 +3699,17 @@ async def fullretire(interaction: discord.Interaction, name: str):
             if not current_rank or current_rank.startswith("R"):
                 continue  # Already retired or invalid
 
-            # Call the website API to retire (upsert with R prefix)
+            # Remove the current entry first
+            try:
+                remove_result = await api_remove_player(username=name, gamemode=gamemode)
+                if not remove_result.get("status") in (200, 204):
+                    errors.append(f"{gamemode}: failed to remove current rank")
+                    continue
+            except Exception as e:
+                errors.append(f"{gamemode}: remove error {e}")
+                continue
+
+            # Add the retired rank
             retire_url = f"{WEBSITE_URL}/api/tests"
             payload = {
                 "username": name,
@@ -3780,11 +3790,21 @@ async def fullunretire(interaction: discord.Interaction, name: str):
             gamemode = test.get("gamemode", "").lower()
             current_rank = test.get("rank", "")
             if not current_rank or not current_rank.startswith("R"):
-                continue  # Not retired or invalid
+                continue
 
             original_rank = current_rank[1:]  # Remove R prefix
 
-            # Upsert back to original rank
+            # Remove the retired entry first
+            try:
+                remove_result = await api_remove_player(username=name, gamemode=gamemode)
+                if not remove_result.get("status") in (200, 204):
+                    errors.append(f"{gamemode}: failed to remove retired rank")
+                    continue
+            except Exception as e:
+                errors.append(f"{gamemode}: remove error {e}")
+                continue
+
+            # Add back the original rank
             post_url = f"{WEBSITE_URL}/api/tests"
             payload = {
                 "username": name,
