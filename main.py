@@ -456,7 +456,7 @@ GAMEMODE_INDICATORS = {
     "creeper": "<:Creeper:1489190838763393104>",
     "diasmp": "<:DiaSMP:1489190856903757884>",
     "ogvanilla": "<:OGVanilla:1489190908477046804>",
-    "shieldlessuhc": "🟠",  # Custom emoji not provided
+    "shieldlessuhc": "<:ShieldlessUHC:1489190941872095292>",
     "spearmace": "<:SpearMace:1489190973400416359>",
     "spearelytra": "<:SpearElytra:1489190973400416359>",
 }
@@ -3017,7 +3017,7 @@ async def testresult(
             rank = tiers.get(key, "Unranked")
             indicator = get_gamemode_indicator(key)
             # Make the tier bold and add indicator
-            lines.append(f"{indicator} {display}: **{rank}**")
+            lines.append(f"{indicator} {display}\n**{rank}**")
 
         # Create 3 columns, each with up to 4 lines
         display_columns = []
@@ -3339,7 +3339,7 @@ async def profile(interaction: discord.Interaction, name: str):
                 # April Fools' funny rank display
                 display_rank = r
                 indicator = get_gamemode_indicator(normalize_gamemode(m))
-                mode_strs.append(f"{indicator} **{m}**: {display_rank} ({p}pt)")
+                mode_strs.append(f"{indicator} {m}\n**{display_rank}** ({p}pt)")
 
             embed.description = "\n".join(mode_strs)
 
