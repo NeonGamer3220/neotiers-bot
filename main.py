@@ -444,21 +444,21 @@ GAMEMODE_COLORS = {
 }
 
 GAMEMODE_INDICATORS = {
-    "mace": "⚫",
-    "sword": "🔵",
-    "vanilla": "🟣",
-    "uhc": "🟠",
-    "pot": "🔴",
-    "nethpot": "🔴",
-    "smp": "🟢",
-    "axe": "🟤",
-    "cart": "🟡",
-    "creeper": "🟢",
-    "diasmp": "🔵",
-    "ogvanilla": "🟣",
-    "shieldlessuhc": "🟠",
-    "spearmace": "🟢",
-    "spearelytra": "🔵",
+    "mace": "<:Mace:1489190873777438791>",
+    "sword": "<:Sword:1489190989150163034>",
+    "vanilla": "<:Vanilla:1489191023308574730>",
+    "uhc": "<:UHC:1489191005902209134>",
+    "pot": "<:Pot:1489190923333013597>",
+    "nethpot": "<:NethPot:1489190890550464543>",
+    "smp": "<:SMP:1489190957306871938>",
+    "axe": "<:Axe:1489190775085338817>",
+    "cart": "<:Cart:1489190821390581860>",
+    "creeper": "<:Creeper:1489190838763393104>",
+    "diasmp": "<:DiaSMP:1489190856903757884>",
+    "ogvanilla": "<:OGVanilla:1489190908477046804>",
+    "shieldlessuhc": "🟠",  # No custom emoji provided
+    "spearmace": "<:SpearMace:1489190973400416359>",
+    "spearelytra": "<:SpearElytra:1489190973400416359>",
 }
 
 
@@ -3332,7 +3332,8 @@ async def profile(interaction: discord.Interaction, name: str):
                 total_points += p
                 # April Fools' funny rank display
                 display_rank = r
-                mode_strs.append(f"**{m}**: {display_rank} ({p}pt)")
+                indicator = get_gamemode_indicator(normalize_gamemode(m))
+                mode_strs.append(f"{indicator} **{m}**: {display_rank} ({p}pt)")
 
             embed.description = "\n".join(mode_strs)
 
