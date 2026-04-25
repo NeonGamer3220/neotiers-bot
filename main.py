@@ -3015,8 +3015,9 @@ async def testresult(
         for key in gamemode_keys:
             display = GAMEMODE_DISPLAY_NAMES.get(key, key)
             rank = tiers.get(key, "Unranked")
-            # Make the tier bold
-            lines.append(f"{display}: **{rank}**")
+            indicator = get_gamemode_indicator(key)
+            # Make the tier bold and add indicator
+            lines.append(f"{indicator} {display}: **{rank}**")
 
         # Create 3 columns, each with up to 4 lines
         display_columns = []
@@ -3037,11 +3038,16 @@ async def testresult(
 
         embed = discord.Embed(
             title="Teszt eredmény",
-            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak {indicator} **{display_mode}** játékmódból.\n\n{tiers_text}",
+            description=f"{tester.mention} **{display_rank_val}** tiert adott {display_username} játékosnak {indicator} **{display_mode}** játékmódból.",
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=skin_url)
         embed.set_footer(text=f"Időpont: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # Add tiers in 3 columns as inline fields
+        embed.add_field(name="\u200b", value=display_columns[0] if display_columns[0] else "\u200b", inline=True)
+        embed.add_field(name="\u200b", value=display_columns[1] if display_columns[1] else "\u200b", inline=True)
+        embed.add_field(name="\u200b", value=display_columns[2] if display_columns[2] else "\u200b", inline=True)
 
         # Only send to the results channel (eredmenyek), not the command channel
         # ALWAYS save to website first (UPsert)
