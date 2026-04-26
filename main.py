@@ -4339,6 +4339,122 @@ async def resetcooldown(interaction: discord.Interaction, user: discord.User, ga
         await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
 
 
+@app_commands.command(name="resetcooldownplayer", description="Játékos cooldownjának törlése Minecraft név alapján (staff csak)")
+@app_commands.describe(
+    player="Játékos Minecraft neve akinek törölni kell a cooldownját",
+    gamemode="Játékmód (opcionális, ha üres akkor minden játékmódban törlődik)"
+)
+async def resetcooldownplayer(interaction: discord.Interaction, player: str, gamemode: str = None):
+    await interaction.response.defer(ephemeral=True)
+
+    # Check if user is staff
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        await interaction.followup.send("Hiba: Guild context szükséges.", ephemeral=True)
+        return
+
+    if not is_staff_member(interaction.user):
+        await interaction.followup.send("Nincs jogosultságod cooldown törléséhez.", ephemeral=True)
+        return
+
+    try:
+        data = _load_data()
+        cooldowns = data.get("cooldowns", {})
+
+        # Find Discord ID by Minecraft name (check linked accounts and all cooldowns)
+        target_discord_id = None
+        
+        # Try linked accounts first
+        for discord_id_str, mc_name in _load_link_data().items():
+            if mc_name.lower() == player.lower():
+                target_discord_id = discord_id_str
+                break
+        
+        # If not found in linked accounts, search in cooldowns (for unlinked players)
+        if not target_discord_id:
+            for discord_id_str, user_cooldowns in cooldowns.items():
+                # We can't easily map discord_id back to Minecraft name without looking up each one
+                # Just check if this discord_id has cooldowns and try to match
+                pass
+        
+        # Also check website linked accounts via API if available
+        if not target_discord_id and WEBSITE_URL:
+            # Try to find Discord ID from Minecraft name via website
+            try:
+                url = f"{WEBSITE_URL}/api/tests?username={player}"
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with http_session.get(url, headers=_auth_headers(), timeout=timeout) as resp:
+                    if resp.status == 200:
+                        data_resp = await resp.json()
+                        tests = data_resp.get("tests", [])
+                        if tests:
+                            # We have test data but still need Discord ID
+                            # For now, we'll just try to find the discord_id in our local cooldowns
+                            pass
+            except Exception:
+                pass
+        
+        # Fallback: search through cooldowns and try to resolve each discord_id to a linked MC name
+        if not target_discord_id:
+            for discord_id_str, user_cooldowns in cooldowns.items():
+                try:
+                    discord_id_int = int(discord_id_str)
+                    linked_name = get_linked_minecraft_name(discord_id_int)
+                    if linked_name and linked_name.lower() == player.lower():
+                        target_discord_id = discord_id_str
+                        break
+                except (ValueError, TypeError):
+                    continue
+        
+        # If still not found, try direct database lookup
+        if not target_discord_id:
+            try:
+                discord_id_int = await get_discord_by_minecraft_async(player)
+                if discord_id_int:
+                    target_discord_id = str(discord_id_int)
+            except Exception:
+                pass
+        
+        # If the player name itself might be a Discord ID (some servers use this)
+        if not target_discord_id:
+            try:
+                test_id = int(player)
+                # Check if this ID exists in cooldowns
+                if str(test_id) in cooldowns:
+                    target_discord_id = str(test_id)
+            except ValueError:
+                pass
+        
+        user_id_str = target_discord_id
+        
+        if gamemode:
+            # Normalize gamemode
+            gamemode_key = normalize_gamemode(gamemode)
+            # Validate gamemode
+            valid_modes = [key for _, key, _ in TICKET_TYPES]
+            if gamemode_key not in valid_modes:
+                await interaction.followup.send(f"❌ Érvénytelen játékmód: {gamemode}", ephemeral=True)
+                return
+
+            if user_id_str and user_id_str in cooldowns and gamemode_key in cooldowns.get(user_id_str, {}):
+                del cooldowns[user_id_str][gamemode_key]
+                _save_data(data)
+                mode_display = get_gamemode_display_name(gamemode_key)
+                await interaction.followup.send(f"✅ **{player}** cooldownja törölve a **{mode_display}** játékmódban!", ephemeral=True)
+            else:
+                await interaction.followup.send(f"ℹ️ **{player}** nem rendelkezik cooldownnal a **{gamemode}** játékmódban.", ephemeral=True)
+        else:
+            # Reset all cooldowns for user
+            if user_id_str and user_id_str in cooldowns:
+                del cooldowns[user_id_str]
+                _save_data(data)
+                await interaction.followup.send(f"✅ **{player}** összes cooldownja törölve!", ephemeral=True)
+            else:
+                await interaction.followup.send(f"ℹ️ **{player}** nem rendelkezik cooldownnal.", ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @app_commands.command(name="link", description="Összekapcsolod a Minecraft fiókodat a Discord fiókoddal.")
 @app_commands.describe(
     code="A Minecraftban kapott összekapcsolási kód (opcionális, ha még nincs kódod)"
@@ -4646,6 +4762,7 @@ async def main():
         bot.tree.add_command(tierlistunban, guild=g)
         bot.tree.add_command(removetierlist, guild=g)
         bot.tree.add_command(cooldown, guild=g)
+        bot.tree.add_command(resetcooldownplayer, guild=g)
         bot.tree.add_command(bulkimport, guild=g)
         bot.tree.add_command(queuepanel, guild=g)
         bot.tree.add_command(pingpanel, guild=g)
@@ -4668,6 +4785,7 @@ async def main():
         bot.tree.add_command(tierlistunban)
         bot.tree.add_command(removetierlist)
         bot.tree.add_command(cooldown)
+        bot.tree.add_command(resetcooldownplayer)
         bot.tree.add_command(bulkimport)
         bot.tree.add_command(queuepanel)
         bot.tree.add_command(pingpanel)
