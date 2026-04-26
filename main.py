@@ -3358,42 +3358,42 @@ async def profile(interaction: discord.Interaction, name: str):
                         break
 
         # Build embed - use purple if player has any retired ranks
-            has_retired = any(str(t.get("rank", "")).startswith("R") for t in tests)
-            embed = discord.Embed(
-                title=f"{display_name} profilja",
-                color=discord.Color.purple() if has_retired else discord.Color.blurple()
-            )
+        has_retired = any(str(t.get("rank", "")).startswith("R") for t in tests)
+        embed = discord.Embed(
+            title=f"{display_name} profilja",
+            color=discord.Color.purple() if has_retired else discord.Color.blurple()
+        )
 
-            # Sort by points (desc)
-            tests.sort(key=lambda x: x.get("points", 0), reverse=True)
+        # Sort by points (desc)
+        tests.sort(key=lambda x: x.get("points", 0), reverse=True)
 
-            # List modes
-            mode_strs = []
-            total_points = 0
-            for t in tests:
-                m = t.get("gamemode", "?")
-                r = t.get("rank", "?")
-                p = t.get("points", 0)
-                total_points += p
-                # April Fools' funny rank display
-                display_rank = r
-                indicator = get_gamemode_indicator(normalize_gamemode(m))
-                mode_strs.append(f"{indicator} {m}\n**{display_rank}** ({p}pt)")
+        # List modes
+        mode_strs = []
+        total_points = 0
+        for t in tests:
+            m = t.get("gamemode", "?")
+            r = t.get("rank", "?")
+            p = t.get("points", 0)
+            total_points += p
+            # April Fools' funny rank display
+            display_rank = r
+            indicator = get_gamemode_indicator(normalize_gamemode(m))
+            mode_strs.append(f"{indicator} {m}\n**{display_rank}** ({p}pt)")
 
-            embed.description = "\n".join(mode_strs)
+        embed.description = "\n".join(mode_strs)
 
-            # Add rank info
-            rank_info = f"**Összes pont:** {total_points}"
-            if global_rank:
-                rank_info += f"\n**Globális rank:** #{global_rank}"
+        # Add rank info
+        rank_info = f"**Összes pont:** {total_points}"
+        if global_rank:
+            rank_info += f"\n**Globális rank:** #{global_rank}"
 
-            embed.add_field(name="Statisztika", value=rank_info, inline=False)
+        embed.add_field(name="Statisztika", value=rank_info, inline=False)
 
-            # Skin
-            skin_url = f"https://minotar.net/helm/{tests[0].get('username', name)}/128.png"
-            embed.set_thumbnail(url=skin_url)
+        # Skin
+        skin_url = f"https://minotar.net/helm/{tests[0].get('username', name)}/128.png"
+        embed.set_thumbnail(url=skin_url)
 
-            await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     except aiohttp.ClientError as e:
         await interaction.followup.send(f"⚠️ Web hiba: {type(e).__name__}: {e}", ephemeral=True)
