@@ -3357,12 +3357,11 @@ async def profile(interaction: discord.Interaction, name: str):
                         global_rank = idx
                         break
 
-            # Build embed
-            display_name = tests[0].get('username', name)
-
+        # Build embed - use purple if player has any retired ranks
+            has_retired = any(str(t.get("rank", "")).startswith("R") for t in tests)
             embed = discord.Embed(
                 title=f"{display_name} profilja",
-                color=discord.Color.blurple()
+                color=discord.Color.purple() if has_retired else discord.Color.blurple()
             )
 
             # Sort by points (desc)
