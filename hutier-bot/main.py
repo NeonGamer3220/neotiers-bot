@@ -1383,7 +1383,10 @@ async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
     if not WEBSITE_URL:
         return {"status": 0, "data": {"tests": []}}
 
-    url = f"{WEBSITE_URL}/api/tests?username={username}&gamemode={mode}"
+    url = f"{WEBSITE_URL}/api/tests?username={username}"
+    if mode:
+        mode_for_api = get_gamemode_display_name(mode)
+        url += f"&gamemode={mode_for_api}"
     print(f"[API_GET_TESTS] Requesting: {url}")
 
     try:
