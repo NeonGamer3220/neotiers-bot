@@ -1799,58 +1799,6 @@ class TierSelect(discord.ui.Select):
         if diff == 0:
             points_str = "±0"
 
-        # Create embed like /testresult
-        skin_url = f"https://minotar.net/helm/{linked_minecraft}/128.png"
-
-        # April Fools' effects
-        display_mc = linked_minecraft
-        display_mode = mode_label
-        display_prev_rank = prev_rank
-        display_selected_tier = selected_tier
-
-        embed = discord.Embed(
-            title=f"{display_mc} teszt eredménye 🏆",
-            color=discord.Color.dark_grey()
-        )
-        embed.set_thumbnail(url=skin_url)
-        embed.add_field(name="Tesztelő:", value=tester.mention, inline=False)
-        embed.add_field(name="Játékmód:", value=display_mode, inline=False)
-        embed.add_field(name="Minecraft név:", value=display_mc, inline=False)
-        embed.add_field(name="Előző rang:", value=f"{display_prev_rank} ({prev_points} pont)", inline=False)
-        embed.add_field(name="Elért rang:", value=f"{display_selected_tier} ({new_points} pont)", inline=False)
-        embed.add_field(name="Pontok:", value=points_str, inline=False)
-
-        # Send to the test results channel
-        tier_channel_id_str = os.getenv("TIER_RESULTS_CHANNEL_ID", "0")
-        print(f"DEBUG: TIER_RESULTS_CHANNEL_ID env var: {tier_channel_id_str}")
-
-        tier_channel_id = 0
-        try:
-            tier_channel_id = int(tier_channel_id_str)
-        except ValueError:
-            print(f"DEBUG: Could not parse tier_channel_id: {tier_channel_id_str}")
-
-        print(f"DEBUG: Parsed tier_channel_id: {tier_channel_id}")
-        print(f"DEBUG: interaction.guild.id: {interaction.guild.id}")
-
-        if not tier_channel_id:
-            # Fallback: try to find channel by name
-            tier_channel = discord.utils.get(interaction.guild.text_channels, name="teszteredmenyek")
-            if not tier_channel:
-                tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
-                if not tier_channel:
-                    tier_channel = discord.utils.get(interaction.guild.text_channels, name="eredmenyek")
-        else:
-            tier_channel = interaction.guild.get_channel(tier_channel_id)
-            print(f"DEBUG: Got channel object: {tier_channel}")
-
-        if tier_channel:
-            print(f"DEBUG: Sending embed to channel: {tier_channel.name} ({tier_channel.id})")
-            await tier_channel.send(embed=embed)
-        else:
-            # Log warning but continue with saving
-            print(f"Warning: Could not find tier results channel. Searched for ID: {tier_channel_id}")
-
         # Save to website
         if WEBSITE_URL:
             try:
