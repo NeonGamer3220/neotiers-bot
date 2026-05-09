@@ -465,7 +465,7 @@ GAMEMODE_INDICATORS = {
     "shieldlessuhc": "<:ShieldlessUHC:1489190941872095292>",
     "spearmace": "<:SpearMace:1489190973400416359>",
     "spearelytra": "<:SpearElytra:1489190973400416359>",
-    "stickfight": "<:StickFight:1489190973400416359>",
+    "stickfight": "<:StickFight:1502574877536948334>",
 }
 
 
