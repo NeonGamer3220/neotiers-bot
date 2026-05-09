@@ -2818,6 +2818,54 @@ async def queuepanel(interaction: discord.Interaction):
     await interaction.followup.send("✅ Panel elküldve!", ephemeral=True)
 
 
+@app_commands.command(name="sync", description="Sync slash commands (admin only)")
+@app_commands.describe(
+    guild="Guild ID to sync to (optional, defaults to configured GUILD_ID)"
+)
+async def sync(interaction: discord.Interaction, guild: str = None):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        if guild:
+            try:
+                guild_id = int(guild)
+                target_guild = discord.Object(id=guild_id)
+            except ValueError:
+                await interaction.followup.send("❌ Érvénytelen guild ID.", ephemeral=True)
+                return
+        elif GUILD_ID:
+            target_guild = discord.Object(id=GUILD_ID)
+        else:
+            await interaction.followup.send("❌ Nincs GUILD_ID beállítva, és nincs megadva guild paraméter.", ephemeral=True)
+            return
+
+        synced = await bot.tree.sync(guild=target_guild)
+        await interaction.followup.send(f"✅ Szinkronizálva {len(synced)} parancs a guild-hez: {target_guild.id}", ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
+@app_commands.command(name="syncglobal", description="Sync slash commands globally (admin only)")
+async def syncglobal(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
+            return
+
+        synced = await bot.tree.sync()
+        await interaction.followup.send(f"✅ Szinkronizálva {len(synced)} parancs globálisan.", ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Hiba: {type(e).__name__}: {e}", ephemeral=True)
+
+
 @app_commands.command(name="pingpanel", description="Ping értesítések beállítása queue-okhoz")
 async def pingpanel(interaction: discord.Interaction):
     """Set up ping notifications for queues"""
@@ -4726,6 +4774,8 @@ async def main():
         bot.tree.add_command(link, guild=g)
         bot.tree.add_command(unlink, guild=g)
         bot.tree.add_command(mylink, guild=g)
+        bot.tree.add_command(sync, guild=g)
+        bot.tree.add_command(syncglobal, guild=g)
     else:
         # Only register as global if no GUILD_ID
         bot.tree.add_command(ticketpanel)
@@ -4749,6 +4799,8 @@ async def main():
         bot.tree.add_command(link)
         bot.tree.add_command(unlink)
         bot.tree.add_command(mylink)
+        bot.tree.add_command(sync)
+        bot.tree.add_command(syncglobal)
 
     try:
         print(f"Connecting to Discord with token: {DISCORD_TOKEN[:10]}...")
