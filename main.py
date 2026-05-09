@@ -318,6 +318,7 @@ TICKET_TYPES = [
     ("ShieldlessUHC", "shieldlessuhc", 1469766017243807865),
     ("SpearMace", "spearmace", 1469968704203788425),
     ("SpearElytra", "spearelytra", 1469968762575912970),
+    ("Stick Fight", "stickfight", 1502572941148164127),
 ]
 
 # Required rounds for each gamemode (FT = First to, LT = Last to)
@@ -340,6 +341,7 @@ TICKET_ROUNDS = {
     "axe": ("FT20", "FT10", None),
     "spearmace": ("FT6", "FT3", None),
     "spearelytra": ("FT6", "FT3", None),
+    "stickfight": ("FT4", "FT3", None),
 }
 
 
@@ -387,6 +389,7 @@ GAMEMODE_ALIASES = {
     "shieldlessuhc": "shieldlessuhc",
     "spearmace": "spearmace",
     "spearelytra": "spearelytra",
+    "stickfight": "stickfight",
 }
 
 # Reverse mapping: bot keys (lowercase) -> proper display names
@@ -406,6 +409,7 @@ GAMEMODE_DISPLAY_NAMES = {
     "shieldlessuhc": "ShieldlessUHC",
     "spearmace": "SpearMace",
     "spearelytra": "SpearElytra",
+    "stickfight": "Stick Fight",
 }
 
 def normalize_gamemode(mode: str) -> str:
@@ -442,6 +446,7 @@ GAMEMODE_COLORS = {
     "shieldlessuhc": 0xd35400,  # Dark Orange
     "spearmace": 0x16a085,    # Dark Teal
     "spearelytra": 0x2980b9,   # Dark Blue
+    "stickfight": 0x9b59b6,    # Purple
 }
 
 GAMEMODE_INDICATORS = {
@@ -460,6 +465,7 @@ GAMEMODE_INDICATORS = {
     "shieldlessuhc": "<:ShieldlessUHC:1489190941872095292>",
     "spearmace": "<:SpearMace:1489190973400416359>",
     "spearelytra": "<:SpearElytra:1489190973400416359>",
+    "stickfight": "<:StickFight:1489190973400416359>",
 }
 
 
@@ -1992,6 +1998,7 @@ QUEUE_CHANNELS = {
     "spearmace": 1495038999876600008,
     "shieldlessuhc": 1495039115119296572,
     "ogvanilla": 1495039145330872341,
+    "stickfight": 1502573221164224592,
 }
 
 # Ping role IDs for each gamemode
@@ -2011,6 +2018,7 @@ QUEUE_PING_ROLES = {
     "ogvanilla": 1495044664502386698,
     "spearelytra": 1495044732680667247,
     "spearmace": 1495044798472781944,
+    "stickfight": 1502573071733882951,
 }
 
 # Category where ticket channels will be created
