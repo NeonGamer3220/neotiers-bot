@@ -63,6 +63,8 @@ async def init_db():
             "Prefer": "return=minimal"
         }
         print(f"Using Supabase REST API: {SUPABASE_URL}/rest/v1/")
+        # Seed gamemodes table (create if not exists)
+        await _seed_gamemodes_supabase()
         print("Database initialized successfully!")
         return
 
@@ -105,10 +107,16 @@ async def init_db():
                 )
             """)
 
-            # Create indexes
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_discord ON linked_accounts(discord_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_minecraft ON linked_accounts(minecraft_name)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_code ON pending_codes(code)")
+        # Create indexes
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_discord ON linked_accounts(discord_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_minecraft ON linked_accounts(minecraft_name)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_code ON pending_codes(code)")
+
+        # Create normalized cache tables
+        await _create_normalized_tables_pg(conn)
+
+        # Seed gamemodes
+        await _seed_gamemodes_pg(conn)
 
         print("Database initialized successfully!")
     except Exception as e:
@@ -270,6 +278,383 @@ def supabase_insert_sync(table: str, data: Dict[str, Any]) -> bool:
         return False
 
 # =========================
+# NORMALIZED PLAYER/GAMEMODE CACHE
+# =========================
+
+async def _ensure_player_id(username: str) -> Optional[int]:
+    """Get or create a player ID in the local cache."""
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                return await conn.fetchval(
+                    """
+                    INSERT INTO players (username, username_lower)
+                    VALUES ($1, LOWER($1))
+                    ON CONFLICT (username_lower) DO UPDATE SET username = EXCLUDED.username
+                    RETURNING id
+                    """,
+                    username
+                )
+        except Exception as e:
+            print(f"Ensure player error (PG): {e}")
+            return None
+    elif USE_SUPABASE_API:
+        try:
+            lower_username = username.lower()
+            # Try to select existing player
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": lower_username})
+            if players:
+                return players[0]["id"]
+            # Insert new player
+            payload = {"username": username, "username_lower": lower_username}
+            success = await supabase_insert(PLAYERS_TABLE, payload)
+            if not success:
+                return None
+            # Fetch again to get ID
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": lower_username})
+            if players:
+                return players[0]["id"]
+        except Exception as e:
+            print(f"Ensure player error (Supabase): {e}")
+    return None
+
+
+async def _ensure_gamemode_id(mode_key: str) -> Optional[int]:
+    """Get or create a gamemode ID in the local cache."""
+    key = mode_key.lower()
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT id FROM gamemodes WHERE key = $1", key)
+                if row:
+                    return row["id"]
+                # Insert missing gamemode (should normally be seeded)
+                display_name = get_gamemode_display_name(mode_key)
+                return await conn.fetchval(
+                    "INSERT INTO gamemodes (key, name) VALUES ($1, $2) RETURNING id",
+                    key, display_name
+                )
+        except Exception as e:
+            print(f"Ensure gamemode error (PG): {e}")
+            return None
+    elif USE_SUPABASE_API:
+        try:
+            gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": key})
+            if gamemodes:
+                return gamemodes[0]["id"]
+            display_name = get_gamemode_display_name(mode_key)
+            payload = {"key": key, "name": display_name}
+            success = await supabase_insert(GAMEMODES_TABLE, payload)
+            if not success:
+                return None
+            gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": key})
+            if gamemodes:
+                return gamemodes[0]["id"]
+        except Exception as e:
+            print(f"Ensure gamemode error (Supabase): {e}")
+    return None
+
+
+async def cache_test_result(
+    username: str,
+    mode_key: str,
+    rank: str,
+    tester_id: str,
+    tester_name: str,
+    ts: int,
+    external_id: Optional[int] = None
+) -> bool:
+    """
+    Mirror a test result into the normalized local cache tables.
+    Returns True on success, False on failure.
+    """
+    points = POINTS.get(rank, 0)
+
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                player_id = await conn.fetchval(
+                    """
+                    INSERT INTO players (username, username_lower)
+                    VALUES ($1, LOWER($1))
+                    ON CONFLICT (username_lower) DO UPDATE SET username = EXCLUDED.username
+                    RETURNING id
+                    """,
+                    username
+                )
+                if player_id is None:
+                    return False
+
+                gamemode_id = await conn.fetchval(
+                    "SELECT id FROM gamemodes WHERE key = $1", mode_key.lower()
+                )
+                if gamemode_id is None:
+                    gamemode_id = await conn.fetchval(
+                        "INSERT INTO gamemodes (key, name) VALUES ($1, $2) RETURNING id",
+                        mode_key.lower(), get_gamemode_display_name(mode_key)
+                    )
+                if gamemode_id is None:
+                    return False
+
+                await conn.execute(
+                    """
+                    INSERT INTO player_gamemode_scores
+                        (player_id, gamemode_id, rank, points, tester_id, tester_name, ts, external_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (player_id, gamemode_id) DO UPDATE SET
+                        rank = EXCLUDED.rank,
+                        points = EXCLUDED.points,
+                        tester_id = EXCLUDED.tester_id,
+                        tester_name = EXCLUDED.tester_name,
+                        ts = EXCLUDED.ts,
+                        external_id = EXCLUDED.external_id
+                    """,
+                    player_id, gamemode_id, rank, points, tester_id, tester_name, ts, external_id
+                )
+                return True
+        except Exception as e:
+            print(f"Cache test result error (PG): {e}")
+            return False
+
+    elif USE_SUPABASE_API:
+        try:
+            lower_username = username.lower()
+            # Get or create player
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": lower_username})
+            if players:
+                player_id = players[0]["id"]
+            else:
+                success = await supabase_insert(PLAYERS_TABLE, {"username": username, "username_lower": lower_username})
+                if not success:
+                    return False
+                players = await supabase_select(PLAYERS_TABLE, {"username_lower": lower_username})
+                if not players:
+                    return False
+                player_id = players[0]["id"]
+
+            # Get or create gamemode
+            gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": mode_key.lower()})
+            if gamemodes:
+                gamemode_id = gamemodes[0]["id"]
+            else:
+                success = await supabase_insert(
+                    GAMEMODES_TABLE,
+                    {"key": mode_key.lower(), "name": get_gamemode_display_name(mode_key)}
+                )
+                if not success:
+                    return False
+                gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": mode_key.lower()})
+                if not gamemodes:
+                    return False
+                gamemode_id = gamemodes[0]["id"]
+
+            payload = {
+                "player_id": player_id,
+                "gamemode_id": gamemode_id,
+                "rank": rank,
+                "points": points,
+                "tester_id": tester_id,
+                "tester_name": tester_name,
+                "ts": ts,
+            }
+            if external_id is not None:
+                payload["external_id"] = external_id
+
+            return await supabase_upsert(PLAYER_SCORES_TABLE, payload)
+        except Exception as e:
+            print(f"Cache test result error (Supabase): {e}")
+            return False
+
+    return False
+
+
+async def get_player_rank_from_cache(username: str, mode_key: str) -> Optional[str]:
+    """Try to get a player's rank for a mode from the local cache. Returns None if not found."""
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT s.rank
+                    FROM player_gamemode_scores s
+                    JOIN players p ON s.player_id = p.id
+                    JOIN gamemodes g ON s.gamemode_id = g.id
+                    WHERE p.username_lower = $1 AND g.key = $2
+                    """,
+                    username.lower(), mode_key.lower()
+                )
+                if row:
+                    return row["rank"]
+        except Exception as e:
+            print(f"Cache rank lookup error (PG): {e}")
+        return None
+    elif USE_SUPABASE_API:
+        try:
+            # Resolve player_id
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": username.lower()})
+            if not players:
+                return None
+            player_id = players[0]["id"]
+
+            # Resolve gamemode_id
+            gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": mode_key.lower()})
+            if not gamemodes:
+                return None
+            gamemode_id = gamemodes[0]["id"]
+
+            # Get score
+            scores = await supabase_select(
+                PLAYER_SCORES_TABLE,
+                {"player_id": player_id, "gamemode_id": gamemode_id}
+            )
+            if scores:
+                return scores[0].get("rank")
+        except Exception as e:
+            print(f"Cache rank lookup error (Supabase): {e}")
+    return None
+
+
+async def _remove_player_gamemode_score(username: str, mode_key: str) -> bool:
+    """Remove a specific gamemode score for a player from the cache."""
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute("""
+                    DELETE FROM player_gamemode_scores
+                    USING players p, gamemodes g
+                    WHERE player_gamemode_scores.player_id = p.id
+                      AND player_gamemode_scores.gamemode_id = g.id
+                      AND p.username_lower = LOWER($1)
+                      AND g.key = LOWER($2)
+                """, username, mode_key)
+                return True
+        except Exception as e:
+            print(f"Cache remove score error (PG): {e}")
+            return False
+    elif USE_SUPABASE_API:
+        try:
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": username.lower()})
+            if not players:
+                return True  # nothing to remove
+            player_id = players[0]["id"]
+            gamemodes = await supabase_select(GAMEMODES_TABLE, {"key": mode_key.lower()})
+            if not gamemodes:
+                return True
+            gamemode_id = gamemodes[0]["id"]
+            success = await supabase_delete(
+                PLAYER_SCORES_TABLE,
+                {"player_id": player_id, "gamemode_id": gamemode_id}
+            )
+            return success
+        except Exception as e:
+            print(f"Cache remove score error (Supabase): {e}")
+            return False
+    return False
+
+
+async def _remove_player_all_scores(username: str) -> bool:
+    """Remove all scores and the player record from the cache."""
+    if db_pool is not None:
+        try:
+            async with db_pool.acquire() as conn:
+                # Remove scores first (cascade might handle but explicit)
+                await conn.execute(
+                    "DELETE FROM player_gamemode_scores WHERE player_id = (SELECT id FROM players WHERE username_lower = LOWER($1))",
+                    username
+                )
+                # Remove player
+                await conn.execute("DELETE FROM players WHERE username_lower = LOWER($1)", username)
+                return True
+        except Exception as e:
+            print(f"Cache remove all error (PG): {e}")
+            return False
+    elif USE_SUPABASE_API:
+        try:
+            players = await supabase_select(PLAYERS_TABLE, {"username_lower": username.lower()})
+            if not players:
+                return True
+            player_id = players[0]["id"]
+            # Delete scores (cascade may handle, but explicit)
+            await supabase_delete(PLAYER_SCORES_TABLE, {"player_id": player_id})
+            # Delete player
+            await supabase_delete(PLAYERS_TABLE, {"id": player_id})
+            return True
+        except Exception as e:
+            print(f"Cache remove all error (Supabase): {e}")
+            return False
+    return False
+
+
+async def _create_normalized_tables_pg(conn):
+    """Create the normalized cache tables in PostgreSQL."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) NOT NULL,
+            username_lower VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            UNIQUE(username_lower)
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_players_username_lower ON players(username_lower)")
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS gamemodes (
+            id SERIAL PRIMARY KEY,
+            key VARCHAR(50) NOT NULL UNIQUE,
+            name VARCHAR(100) NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS player_gamemode_scores (
+            id SERIAL PRIMARY KEY,
+            player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            gamemode_id INTEGER NOT NULL REFERENCES gamemodes(id) ON DELETE CASCADE,
+            rank VARCHAR(50) NOT NULL,
+            points INTEGER NOT NULL,
+            tester_id BIGINT,
+            tester_name VARCHAR(255),
+            ts BIGINT NOT NULL,
+            external_id INTEGER,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            UNIQUE(player_id, gamemode_id)
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_pgs_player ON player_gamemode_scores(player_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_pgs_gamemode ON player_gamemode_scores(gamemode_id)")
+
+
+async def _seed_gamemodes_pg(conn):
+    """Seed the gamemodes table from TICKET_TYPES."""
+    for display_name, key, cat_id in TICKET_TYPES:
+        await conn.execute(
+            """
+            INSERT INTO gamemodes (key, name) VALUES ($1, $2)
+            ON CONFLICT (key) DO NOTHING
+            """,
+            key, display_name
+        )
+
+
+async def _seed_gamemodes_supabase():
+    """Seed gamemodes table via Supabase REST API."""
+    if not USE_SUPABASE_API:
+        return
+    for display_name, key, cat_id in TICKET_TYPES:
+        try:
+            # Check if exists
+            existing = await supabase_select(GAMEMODES_TABLE, {"key": key})
+            if existing:
+                continue
+            payload = {"key": key, "name": display_name}
+            await supabase_insert(GAMEMODES_TABLE, payload)
+        except Exception as e:
+            print(f"Failed to seed gamemode {key}: {e}")
+
+
+# =========================
 # ENV / CONFIG
 # =========================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
@@ -320,6 +705,9 @@ TICKET_TYPES = [
     ("SpearElytra", "spearelytra", 1469968762575912970),
     ("Stick Fight", "stickfight", 1502572941148164127),
 ]
+
+# Reverse mapping: display name (case-insensitive) -> internal key
+GAMEMODE_DISPLAY_TO_KEY = {display.lower(): key for display, key, _ in TICKET_TYPES}
 
 # Required rounds for each gamemode (FT = First to, LT = Last to)
 # Format: (default_ft, lt3_below_ft, loss_ft optional)
@@ -467,6 +855,15 @@ GAMEMODE_INDICATORS = {
     "spearelytra": "<:SpearElytra:1489190973400416359>",
     "stickfight": "<:StickFight:1502574877536948334>",
 }
+
+
+# =========================
+# NORMALIZED DATABASE SCHEMA
+# =========================
+# Table names for the normalized player/gamemode cache
+PLAYERS_TABLE = "players"
+GAMEMODES_TABLE = "gamemodes"
+PLAYER_SCORES_TABLE = "player_gamemode_scores"
 
 
 def get_gamemode_indicator(mode_key: str, is_open: bool = True) -> str:
@@ -1221,9 +1618,15 @@ def is_gamemode_tester_or_admin(member: discord.Member, gamemode: str) -> bool:
 
 async def get_player_rank_for_mode(username: str, mode_key: str) -> str:
     """
-    Get a player's current rank for a specific gamemode from the website.
+    Get a player's current rank for a specific gamemode.
+    Tries local cache first, then falls back to website API.
     Returns "Unranked" if not found or on error.
     """
+    # Try local cache first
+    cached_rank = await get_player_rank_from_cache(username, mode_key)
+    if cached_rank is not None:
+        return cached_rank if cached_rank else "Unranked"
+
     if not WEBSITE_URL:
         return "Unranked"
     try:
@@ -1451,6 +1854,18 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             ts=int(time.time())
         )
         if success:
+            # Also cache the result locally (non-fatal if it fails)
+            try:
+                await cache_test_result(
+                    username=username,
+                    mode_key=mode,
+                    rank=rank,
+                    tester_id=str(tester.id),
+                    tester_name=tester.display_name,
+                    ts=int(time.time())
+                )
+            except Exception as e:
+                print(f"Warning: failed to cache test result: {e}")
             return {"status": 200, "data": {"success": True}}
         print("DB upsert failed, falling back")
 
@@ -1466,6 +1881,18 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             "ts": int(time.time()),
         }
         if await supabase_upsert("tests", payload_sb):
+            # Also cache locally
+            try:
+                await cache_test_result(
+                    username=username,
+                    mode_key=mode,
+                    rank=rank,
+                    tester_id=str(tester.id),
+                    tester_name=tester.display_name,
+                    ts=int(time.time())
+                )
+            except Exception as e:
+                print(f"Warning: failed to cache test result: {e}")
             return {"status": 200, "data": {"success": True}}
         print("Supabase upsert failed, falling back")
 
@@ -1500,6 +1927,19 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
                         except Exception:
                             put_data = {}
                         print(f"PUT response: {put_resp.status} – {put_data}")
+                        # Cache the updated test
+                        try:
+                            await cache_test_result(
+                                username=username,
+                                mode_key=mode,
+                                rank=rank,
+                                tester_id=str(tester.id),
+                                tester_name=tester.display_name,
+                                ts=int(time.time()),
+                                external_id=int(test_id)
+                            )
+                        except Exception as e:
+                            print(f"Warning: failed to cache test result: {e}")
                         return {"status": put_resp.status, "data": put_data}
                 else:
                     print("No existing test, creating via POST")
@@ -1524,6 +1964,22 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             except Exception:
                 data = {"error": await resp.text()}
             print(f"[API_POST_TEST] POST response: {resp.status} – {data}")
+            # Cache the new test (if successful)
+            if resp.status in (200, 201):
+                try:
+                    # The response may include the new test with an ID
+                    test_id = data.get("id") if isinstance(data, dict) else None
+                    await cache_test_result(
+                        username=username,
+                        mode_key=mode,
+                        rank=rank,
+                        tester_id=str(tester.id),
+                        tester_name=tester.display_name,
+                        ts=int(time.time()),
+                        external_id=int(test_id) if test_id is not None else None
+                    )
+                except Exception as e:
+                    print(f"Warning: failed to cache test result: {e}")
             return {"status": resp.status, "data": data}
     except Exception as e:
         print(f"[API_POST_TEST] POST exception: {e}")
@@ -1595,7 +2051,22 @@ async def api_remove_player(username: str, gamemode: Optional[str] = None) -> Di
             data = await resp.json()
         except Exception:
             data = {"error": await resp.text()}
-        return {"status": resp.status, "data": data}
+        status = resp.status
+        # If removal succeeded, also clear local cache
+        if status == 200:
+            try:
+                if gamemode:
+                    # Convert display name to internal key
+                    mode_key = GAMEMODE_DISPLAY_TO_KEY.get(gamemode.lower())
+                    if mode_key:
+                        await _remove_player_gamemode_score(username, mode_key)
+                    else:
+                        print(f"Warning: unknown gamemode display '{gamemode}' for cache removal")
+                else:
+                    await _remove_player_all_scores(username)
+            except Exception as e:
+                print(f"Warning: failed to remove from cache: {e}")
+        return {"status": status, "data": data}
 
 
 # =========================
@@ -3244,6 +3715,13 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
                                                 print(f"Delete conflict test status: {d_resp.status}")
                                         except Exception as e:
                                             print(f"Failed to delete conflicting test {test_id}: {e}")
+                                    # Also remove from local cache (non-fatal)
+                                    try:
+                                        mode_key_cache = GAMEMODE_DISPLAY_TO_KEY.get(test_mode.lower())
+                                        if mode_key_cache:
+                                            await _remove_player_gamemode_score(newname, mode_key_cache)
+                                    except Exception as e:
+                                        print(f"Warning: failed to clear cache for {newname}/{test_mode}: {e}")
             except Exception as e:
                 print(f"Error checking/deleting conflicts for {newname}: {e}")
 
@@ -3268,6 +3746,23 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
                         print(f"Warning: linked_accounts update returned False for {oldname} -> {newname}")
                 except Exception as e:
                     print(f"Error updating linked_accounts: {e}")
+
+            # Also update players cache (local normalized table)
+            try:
+                if db_pool is not None:
+                    async with db_pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE players SET username = $1, username_lower = LOWER($1) WHERE username_lower = LOWER($2)",
+                            newname, oldname
+                        )
+                elif USE_SUPABASE_API:
+                    await supabase_update(
+                        PLAYERS_TABLE,
+                        {"username": newname, "username_lower": newname.lower()},
+                        {"username_lower": oldname.lower()}
+                    )
+            except Exception as e:
+                print(f"Warning: failed to update players cache on rename: {e}")
 
             msg = f"✅ Sikeresen átnevezve: **{oldname}** → **{newname}**\nFrissítve: {updated_count} db bejegyzés (összes gamemód)"
 
