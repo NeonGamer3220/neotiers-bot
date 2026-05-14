@@ -669,6 +669,8 @@ ALLOWED_USER_IDS = [int(x.strip()) for x in os.getenv("ALLOWED_USER_IDS", "").sp
 DEBUG_ALLOWED_USERS = []
 # DEBUG: Hardcoded role IDs for testing
 DEBUG_ALLOWED_ROLES = [1483822408182796418]
+# Global tester role ID - testers who can assign tiers up to LT3
+TESTER_ROLE_ID = 1469755118634270864
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
@@ -1584,6 +1586,16 @@ def is_staff_member(member: discord.Member) -> bool:
     return False
 
 
+def can_assign_tier(member: discord.Member) -> bool:
+    """Check if member is allowed to assign tiers. Includes staff and global testers."""
+    return is_staff_member(member) or any(r.id == TESTER_ROLE_ID for r in member.roles)
+
+
+def can_assign_all_tiers(member: discord.Member) -> bool:
+    """Check if member can assign any tier without restrictions. Staff (including regulators) only."""
+    return is_staff_member(member)
+
+
 def get_gamemode_tester_role_id(gamemode: str) -> Optional[int]:
     """Get the tester role ID for a specific gamemode from TICKET_TYPES"""
     for label, key, role_id in TICKET_TYPES:
@@ -2141,7 +2153,7 @@ class CloseTicketView(discord.ui.View):
             await interaction.response.send_message("Hiba: member not found.", ephemeral=True)
             return
 
-        if not is_staff_member(member):
+        if not can_assign_tier(member):
             await interaction.response.send_message("Nincs jogosultságod tier adásához.", ephemeral=True)
             return
 
@@ -2192,7 +2204,7 @@ class TierSelectView(discord.ui.View):
                 break
         self.mode_label = mode_label
         self.add_item(GameModeSelect(mode_label, mode_key))
-        self.add_item(TierSelect())
+        self.add_item(TierSelect(tester))
 
 
 class GameModeSelect(discord.ui.Select):
@@ -2208,10 +2220,16 @@ class GameModeSelect(discord.ui.Select):
 
 
 class TierSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, tester: discord.Member):
+        # Determine allowed ranks based on tester's permissions
+        if can_assign_all_tiers(tester):
+            allowed_ranks = [rank for rank in RANKS if rank != "Unranked"]
+        else:
+            # Testers with cap: only up to LT3 (points <= 6)
+            allowed_ranks = [rank for rank in RANKS if rank != "Unranked" and get_rank_value_min(rank) <= 6]
         options = [
             discord.SelectOption(label=rank, value=rank)
-            for rank in RANKS if rank != "Unranked"
+            for rank in allowed_ranks
         ]
         super().__init__(placeholder="Elért rang...", options=options, custom_id="tier_select")
 
@@ -2353,15 +2371,6 @@ class TicketButton(discord.ui.Button):
             )
             return
 
-        player_rank = await get_player_rank_for_mode(linked_minecraft, self.mode_key)
-        if not can_open_ticket(player_rank):
-            await interaction.response.send_message(
-                f"❌ A **{get_gamemode_display_name(self.mode_key)}** ticket megnyitásához legalább **LT3** rang szükséges. "
-                f"Jelenlegi rangod: **{player_rank}**.",
-                ephemeral=True
-            )
-            return
-
         left = cooldown_left(member.id, self.mode_key)
         if left > 0:
             days = left // (24 * 3600)
@@ -2425,7 +2434,9 @@ class TicketButton(discord.ui.Button):
 
             set_open_ticket_channel_id(member.id, self.mode_key, channel.id)
 
-            ping_text = ""
+            # Ping the tester role for this gamemode
+            ping_role_id = QUEUE_PING_ROLES.get(self.mode_key)
+            ping_text = f"<@&{ping_role_id}> " if ping_role_id else ""
 
             rounds_display = get_ticket_rounds_display(self.mode_key)
 
