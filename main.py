@@ -410,8 +410,11 @@ async def _remove_player_all_scores(username: str) -> bool:
     return False
 
 
-async def close_db():
+# =========================
+# ENV / CONFIG
+# =========================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
+
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "0"))
 TICKET_CATEGORY_ID = int(os.getenv("TICKET_CATEGORY_ID", "0"))
