@@ -2238,25 +2238,8 @@ QUEUE_CHANNELS = {
     "stickfight": 1502573221164224592,
 }
 
-# Ping role IDs for each gamemode
-QUEUE_PING_ROLES = {
-    "sword": 1495043729017278525,
-    "axe": 1495043913583558758,
-    "mace": 1495043981959237752,
-    "uhc": 1495044042612805754,
-    "pot": 1495044102730022942,
-    "nethpot": 1495044163194847322,
-    "smp": 1495044237551472893,
-    "vanilla": 1495044315272052929,
-    "creeper": 1495044383425171506,
-    "cart": 1495044436403556443,
-    "diasmp": 1495044514992095333,
-    "shieldlessuhc": 1495044593211670711,
-    "ogvanilla": 1495044664502386698,
-    "spearelytra": 1495044732680667247,
-    "spearmace": 1495044798472781944,
-    "stickfight": 1502573071733882951,
-}
+# Ping role IDs for each gamemode (uses tester roles from TICKET_TYPES)
+QUEUE_PING_ROLES = {key: role_id for _, key, role_id in TICKET_TYPES}
 
 # Category where ticket channels will be created
 TICKET_CREATE_CATEGORY_ID = 1495038336744689674
