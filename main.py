@@ -3063,7 +3063,7 @@ async def sync(interaction: discord.Interaction, guild: str = None):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
@@ -3092,7 +3092,7 @@ async def syncglobal(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
@@ -3757,7 +3757,7 @@ async def retire(interaction: discord.Interaction, name: str, gamemode: app_comm
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
@@ -3843,7 +3843,7 @@ async def unretire(interaction: discord.Interaction, name: str, gamemode: app_co
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
@@ -3925,7 +3925,7 @@ async def fullretire(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
@@ -4019,7 +4019,7 @@ async def fullunretire(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        if not interaction.user.guild_permissions.administrator:
+        if not can_assign_all_tiers(interaction.user):
             await interaction.followup.send("Nincs jogosultságod ehhez a parancshoz.", ephemeral=True)
             return
 
