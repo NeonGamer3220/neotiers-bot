@@ -488,6 +488,7 @@ TICKET_TYPES = [
     ("SpearMace", "spearmace", 1469968704203788425),
     ("SpearElytra", "spearelytra", 1469968762575912970),
     ("Stick Fight", "stickfight", 1502572941148164127),
+    ("Trident", "trident", 1505297970915184670),
 ]
 
 # Reverse mapping: display name (case-insensitive) -> internal key
@@ -514,6 +515,7 @@ TICKET_ROUNDS = {
     "spearmace": ("FT6", "FT3", None),
     "spearelytra": ("FT6", "FT3", None),
     "stickfight": ("FT4", "FT3", None),
+    "trident": ("FT6", "FT3", None),
 }
 
 
@@ -562,6 +564,7 @@ GAMEMODE_ALIASES = {
     "spearmace": "spearmace",
     "spearelytra": "spearelytra",
     "stickfight": "stickfight",
+    "trident": "trident",
 }
 
 # Reverse mapping: bot keys (lowercase) -> proper display names
@@ -582,6 +585,7 @@ GAMEMODE_DISPLAY_NAMES = {
     "spearmace": "SpearMace",
     "spearelytra": "SpearElytra",
     "stickfight": "Stick Fight",
+    "trident": "Trident",
 }
 
 def normalize_gamemode(mode: str) -> str:
@@ -619,6 +623,7 @@ GAMEMODE_COLORS = {
     "spearmace": 0x16a085,    # Dark Teal
     "spearelytra": 0x2980b9,   # Dark Blue
     "stickfight": 0x9b59b6,    # Purple
+    "trident": 0x1abc9c,       # Teal
 }
 
 GAMEMODE_INDICATORS = {
@@ -639,6 +644,7 @@ GAMEMODE_INDICATORS = {
     "spearelytra": "<:SpearElytra:1489190973400416359>",
     "stickfight": "<:StickFight:1502574877536948334>",
     "stick fight": "<:StickFight:1502574877536948334>",
+    "trident": "<:Trident:1505194733629210664>",
 }
 
 
@@ -1657,6 +1663,7 @@ async def start_health_server():
                 "spearelytra": "🪶",
                 "stickfight": "🎮",
                 "stick fight": "🎮",
+                "trident": "🔱",
             }
             gamemode_icon = gamemode_icon_map.get(gamemode_lower, "🎮")
 
@@ -1745,8 +1752,31 @@ def format_discord_notification(username: str, gamemode: str, tested_tier: str, 
     # Line 1: discord_name - minecraft_name - Sikeres/... result
     lines.append(f"{username} - {username} - **{result} volt {tested_tier} teszten.**")
 
+    # Get appropriate gamemode icon
+    gamemode_icon_map = {
+        "vanilla": "🎮",
+        "uhc": "🎮",
+        "pot": "🎮",
+        "nethpot": "🎮",
+        "smp": "🎮",
+        "sword": "🗡️",
+        "axe": "🪓",
+        "mace": "🔨",
+        "cart": "🛒",
+        "creeper": "💚",
+        "diasmp": "🎮",
+        "ogvanilla": "🎮",
+        "shieldlessuhc": "🎮",
+        "spearmace": "⚔️",
+        "spearelytra": "🪶",
+        "stickfight": "🎮",
+        "stick fight": "🎮",
+        "trident": "🔱",
+    }
+    gamemode_icon = gamemode_icon_map.get(gamemode.lower(), "🎮")
+
     # Gamemode line
-    lines.append(f"**__Gamemode__** 🌾 {gamemode}")
+    lines.append(f"**__Gamemode__** {gamemode_icon} {gamemode}")
 
     # Fight notes — only tiers that have non-empty content, in fixed order
     for tier_key in NOTIFICATION_TIER_ORDER:
@@ -2559,6 +2589,7 @@ QUEUE_CHANNELS = {
     "shieldlessuhc": 1495039115119296572,
     "ogvanilla": 1495039145330872341,
     "stickfight": 1502573221164224592,
+    "trident": 1505298225987457064,
 }
 
 # Ping role IDs for each gamemode (uses tester roles from TICKET_TYPES)
