@@ -3696,6 +3696,10 @@ async def testresult(
         if tier_channel:
             await tier_channel.send(embed=embed)
             return
+        tier_channel = discord.utils.get(interaction.guild.text_channels, name="eredmények")
+        if tier_channel:
+            await tier_channel.send(embed=embed)
+            return
         tier_channel = discord.utils.get(interaction.guild.text_channels, name="test-results")
         if tier_channel:
             await tier_channel.send(embed=embed)
