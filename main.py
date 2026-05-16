@@ -613,6 +613,7 @@ GAMEMODE_INDICATORS = {
     "spearmace": "<:SpearMace:1489190973400416359>",
     "spearelytra": "<:SpearElytra:1489190973400416359>",
     "stickfight": "<:StickFight:1502574877536948334>",
+    "stick fight": "<:StickFight:1502574877536948334>",
 }
 
 
