@@ -315,8 +315,8 @@ async def cache_test_result(
         try:
             # Check if record exists
             existing = await supabase_select(TESTS_TABLE, {
-                "username": f"eq.{username}",
-                "gamemode": f"eq.{gamemode}"
+                "username": username,
+                "gamemode": gamemode
             })
             payload = {
                 "username": username,
@@ -328,8 +328,8 @@ async def cache_test_result(
             if existing:
                 # Update
                 success = await supabase_update(TESTS_TABLE, payload, {
-                    "username": f"eq.{username}",
-                    "gamemode": f"eq.{gamemode}"
+                    "username": username,
+                    "gamemode": gamemode
                 })
             else:
                 # Insert
@@ -365,8 +365,8 @@ async def get_player_rank_from_cache(username: str, mode_key: str) -> Optional[s
     elif USE_SUPABASE_API:
         try:
             results = await supabase_select(TESTS_TABLE, {
-                "username": f"eq.{username}",
-                "gamemode": f"eq.{gamemode}"
+                "username": username,
+                "gamemode": gamemode
             })
             if results:
                 return results[0].get("rank")
@@ -394,8 +394,8 @@ async def _remove_player_gamemode_score(username: str, mode_key: str) -> bool:
     elif USE_SUPABASE_API:
         try:
             success = await supabase_delete(TESTS_TABLE, {
-                "username": f"eq.{username}",
-                "gamemode": f"eq.{gamemode}"
+                "username": username,
+                "gamemode": gamemode
             })
             return success
         except Exception as e:
@@ -419,7 +419,7 @@ async def _remove_player_all_scores(username: str) -> bool:
             return False
     elif USE_SUPABASE_API:
         try:
-            success = await supabase_delete(TESTS_TABLE, {"username": f"eq.{username}"})
+            success = await supabase_delete(TESTS_TABLE, {"username": username})
             return success
         except Exception as e:
             print(f"Cache remove all error (Supabase): {e}")
@@ -1944,18 +1944,33 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             return {"status": 200, "data": {"success": True}}
         print("DB upsert failed, falling back")
 
-    # Secondary: Supabase REST upsert
+    # Secondary: Supabase REST API with existence check (like cache_test_result)
     if USE_SUPABASE_API:
-        print(f"[API_POST_TEST] Supabase upsert: {username}/{mode_for_api}")
+        print(f"[API_POST_TEST] Checking Supabase: {username}/{mode_for_api}")
         points = POINTS.get(rank, 0)
-        payload_sb = {
+        payload = {
             "username": username,
             "gamemode": mode_for_api,
             "rank": rank,
             "points": points,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
-        if await supabase_upsert(TESTS_TABLE, payload_sb):
+        # Check if record exists first (required for proper upsert without unique constraint)
+        existing = await supabase_select(TESTS_TABLE, {
+            "username": username,
+            "gamemode": mode_for_api
+        })
+        success = False
+        if existing:
+            # Update existing record
+            success = await supabase_update(TESTS_TABLE, payload, {
+                "username": username,
+                "gamemode": mode_for_api
+            })
+        else:
+            # Insert new record
+            success = await supabase_insert(TESTS_TABLE, payload)
+        if success:
             # Also cache locally
             try:
                 await cache_test_result(
@@ -1969,7 +1984,7 @@ async def api_post_test(username: str, mode: str, rank: str, tester: discord.Mem
             except Exception as e:
                 print(f"Warning: failed to cache test result: {e}")
             return {"status": 200, "data": {"success": True}}
-        print("Supabase upsert failed, falling back")
+        print("Supabase API failed, falling back")
 
     # Fallback: Website API – check existence first, then either PUT or POST
     if not WEBSITE_URL:
@@ -3816,7 +3831,7 @@ async def tierlistnamechange(interaction: discord.Interaction, oldname: str, new
                     await supabase_update(
                         TESTS_TABLE,
                         {"username": newname},
-                        {"username": f"eq.{oldname}"}
+                        {"username": oldname}
                     )
             except Exception as e:
                 print(f"Warning: failed to update tests cache on rename: {e}")
