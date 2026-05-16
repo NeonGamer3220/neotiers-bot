@@ -431,6 +431,7 @@ TESTER_ROLE_ID = 1469755118634270864
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
+HIGH_TEST_CHANNEL_ID = int(os.getenv("HIGH_TEST_CHANNEL_ID", "0"))  # channel for high test announcements
 
 # Minecraft Verification API
 MINECRAFT_API_URL = os.getenv("MINECRAFT_API_URL", "http://localhost:8080").rstrip("/")
@@ -1559,8 +1560,133 @@ async def start_health_server():
             "minecraft": minecraft_name
         })
 
+    # API endpoint for high test announcements
+    async def handle_high_test(request):
+        print(f"handle_high_test called")
+        try:
+            # Check authentication
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return web.json_response({"ok": False, "error": "Missing or invalid Authorization header"}, status=401)
+
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            if token != BOT_API_KEY:
+                return web.json_response({"ok": False, "error": "Invalid API key"}, status=401)
+
+            # Parse request body
+            try:
+                payload = await request.json()
+            except Exception as e:
+                return web.json_response({"ok": False, "error": f"Invalid JSON: {str(e)}"}, status=400)
+
+            # Extract and validate required fields (with aliases)
+            discord_name = payload.get("discord_name") or payload.get("discordName") or payload.get("discord")
+            minecraft_name = payload.get("minecraft_name") or payload.get("minecraftName") or payload.get("minecraft")
+            tier = payload.get("tier") or payload.get("rank") or payload.get("testedTier")
+            gamemode = payload.get("gamemode") or payload.get("mode") or payload.get("gameMode")
+            fight_notes = payload.get("fightNotes", {})
+
+            # Validate required fields
+            if not discord_name:
+                return web.json_response({"ok": False, "error": "Missing discord_name"}, status=400)
+            if not minecraft_name:
+                return web.json_response({"ok": False, "error": "Missing minecraft_name"}, status=400)
+            if not tier:
+                return web.json_response({"ok": False, "error": "Missing tier"}, status=400)
+            if not gamemode:
+                return web.json_response({"ok": False, "error": "Missing gamemode"}, status=400)
+            if not fight_notes or not isinstance(fight_notes, dict):
+                return web.json_response({"ok": False, "error": "fightNotes must be an object"}, status=400)
+
+            # Check that at least one fight note is filled
+            if not any(fight_notes.values()):
+                return web.json_response({"ok": False, "error": "At least one fight note must be filled"}, status=400)
+
+            # Normalize tier (uppercase, remove spaces)
+            tier_normalized = tier.upper().replace(" ", "")
+
+            # Validate tier
+            valid_tiers = ["UNRANKED"] + [t for t in RANKS if t != "Unranked"]
+            if tier_normalized not in valid_tiers:
+                return web.json_response({"ok": False, "error": f"Invalid tier: {tier}"}, status=400)
+
+            # Get gamemode display name and icon
+            gamemode_lower = gamemode.lower().strip()
+            gamemode_display = get_gamemode_display_name(gamemode_lower)
+            
+            # Get gamemode icon - map from gamemode display names to icons
+            gamemode_icon_map = {
+                "vanilla": "🎮",
+                "uhc": "🎮",
+                "pot": "🎮",
+                "nethpot": "🎮",
+                "smp": "🎮",
+                "sword": "🗡️",
+                "axe": "🪓",
+                "mace": "🔨",
+                "cart": "🛒",
+                "creeper": "💚",
+                "diasmp": "🎮",
+                "ogvanilla": "🎮",
+                "shieldlessuhc": "🎮",
+                "spearmace": "⚔️",
+                "spearelytra": "🪶",
+                "stickfight": "🎮",
+                "stick fight": "🎮",
+            }
+            gamemode_icon = gamemode_icon_map.get(gamemode_lower, "🎮")
+
+            # Build Discord message
+            message_lines = []
+            
+            # Header line
+            message_lines.append(f"{discord_name} - {minecraft_name} - **Sikeres volt {tier_normalized} teszten.**")
+            
+            # Gamemode line
+            message_lines.append(f"**__Gamemode__** {gamemode_icon} {gamemode_display}")
+            
+            # Fight notes lines - only show those with content
+            valid_fight_keys = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
+            for fight_key in valid_fight_keys:
+                fight_text = fight_notes.get(fight_key, "").strip()
+                if fight_text:
+                    message_lines.append(f"**__{fight_key} Fightok__**")
+                    message_lines.append(f"> {fight_text}")
+
+            discord_message = "\n".join(message_lines)
+
+            # Send message to Discord channel
+            if HIGH_TEST_CHANNEL_ID and HIGH_TEST_CHANNEL_ID > 0:
+                try:
+                    channel = bot.get_channel(HIGH_TEST_CHANNEL_ID)
+                    if channel:
+                        await channel.send(discord_message)
+                        print(f"Sent high-test message to channel {HIGH_TEST_CHANNEL_ID}")
+                    else:
+                        print(f"Channel {HIGH_TEST_CHANNEL_ID} not found")
+                except Exception as e:
+                    print(f"Error sending message to Discord: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"HIGH_TEST_CHANNEL_ID not configured: {HIGH_TEST_CHANNEL_ID}")
+
+            # Return success response
+            return web.json_response({
+                "ok": True,
+                "discord_channel": "high-test",
+                "message": discord_message
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"handle_high_test error: {e}")
+            traceback.print_exc()
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     app.router.add_get("/health", health)
     app.router.add_get("/api/link/verify", verify_link)
+    app.router.add_post("/api/high-test", handle_high_test)
 
     runner = web.AppRunner(app)
     await runner.setup()
