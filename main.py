@@ -515,7 +515,7 @@ TICKET_ROUNDS = {
     "spearmace": ("FT6", "FT3", None),
     "spearelytra": ("FT6", "FT3", None),
     "stickfight": ("FT4", "FT3", None),
-    "trident": ("FT6", "FT3", None),
+    "trident": ("FT6", "FT4", "FT3"),  # FT3 if lose round
 }
 
 
