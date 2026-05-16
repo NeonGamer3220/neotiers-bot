@@ -3609,7 +3609,7 @@ async def profile(interaction: discord.Interaction, name: str):
         # Build embed - use purple if player has any retired ranks
         has_retired = any(str(t.get("rank", "")).startswith("R") for t in tests)
         embed = discord.Embed(
-            title=f"{display_name} profilja",
+            title=f"{player_username} profilja",
             color=discord.Color.purple() if has_retired else discord.Color.blurple()
         )
 
