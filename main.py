@@ -94,6 +94,23 @@ async def init_db():
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_discord ON linked_accounts(discord_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_linked_minecraft ON linked_accounts(minecraft_name)")
 
+            # Create discord_notifications table for bot notifications
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS discord_notifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    gamemode TEXT NOT NULL,
+                    tested_tier TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    fight_notes JSONB DEFAULT '{}'::jsonb,
+                    processed BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    processed_at TIMESTAMP WITH TIME ZONE
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_discord_notifications_processed ON discord_notifications(processed)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_discord_notifications_created ON discord_notifications(created_at)")
+
         print("Database initialized successfully!")
     except Exception as e:
         print(f"Failed to initialize database: {e}")
@@ -431,6 +448,13 @@ TESTER_ROLE_ID = 1469755118634270864
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "").rstrip("/")  # e.g. https://neontiers.vercel.app
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")              # shared secret between bot and website
+
+# Bot Notifications API (external website → Discord bot)
+BOT_NOTIFICATIONS_API_URL = os.getenv("BOT_NOTIFICATIONS_API_URL", "").rstrip("/")
+NOTIFICATION_POLL_INTERVAL = int(os.getenv("NOTIFICATION_POLL_INTERVAL", "30"))  # seconds
+
+# Supabase table for Discord notifications received from the website
+DISCORD_NOTIFICATIONS_TABLE = "discord_notifications"
 HIGH_TEST_CHANNEL_ID = int(os.getenv("HIGH_TEST_CHANNEL_ID", "0"))  # channel for high test announcements
 
 # Minecraft Verification API
@@ -1704,6 +1728,163 @@ def _auth_headers() -> Dict[str, str]:
     if not BOT_API_KEY:
         return {}
     return {"Authorization": f"Bearer {BOT_API_KEY}"}
+
+
+# =========================
+# BOT NOTIFICATIONS API
+# =========================
+
+NOTIFICATION_TIER_ORDER = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
+VALID_FIGHT_KEYS = set(NOTIFICATION_TIER_ORDER)
+
+
+def format_discord_notification(username: str, gamemode: str, tested_tier: str, result: str, fight_notes: dict) -> str:
+    """Format a bot notification into the required Discord message layout."""
+    lines = []
+
+    # Line 1: discord_name - minecraft_name - Sikeres/... result
+    lines.append(f"{username} - {username} - **{result} volt {tested_tier} teszten.**")
+
+    # Gamemode line
+    lines.append(f"**__Gamemode__** 🌾 {gamemode}")
+
+    # Fight notes — only tiers that have non-empty content, in fixed order
+    for tier_key in NOTIFICATION_TIER_ORDER:
+        note = (fight_notes or {}).get(tier_key, "")
+        if isinstance(note, str):
+            note = note.strip()
+        if note:
+            lines.append(f"**__{tier_key} Fightok__**")
+            lines.append(f"> {note}")
+
+    return "\n".join(lines)
+
+
+async def fetch_bot_notifications() -> list:
+    """
+    GET /api/bot-notifications
+    Returns a list of unprocessed notification dicts, or empty list on error.
+    """
+    if not BOT_NOTIFICATIONS_API_URL or not BOT_API_KEY:
+        print("[BotNotifications] Skipped: BOT_NOTIFICATIONS_API_URL or BOT_API_KEY not set")
+        return []
+
+    url = f"{BOT_NOTIFICATIONS_API_URL}/api/bot-notifications"
+    try:
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                url,
+                headers={"Authorization": f"Bearer {BOT_API_KEY}"},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    notifications = data.get("notifications", [])
+                    print(f"[BotNotifications] Fetched {len(notifications)} notification(s) from API")
+                    return notifications
+                else:
+                    text = await resp.text()
+                    print(f"[BotNotifications] GET failed ({resp.status}): {text[:200]}")
+                    return []
+    except asyncio.TimeoutError:
+        print("[BotNotifications] Fetch timed out")
+        return []
+    except Exception as exc:
+        print(f"[BotNotifications] Fetch error: {exc}")
+        return []
+
+
+async def mark_notifications_processed(ids: list) -> bool:
+    """
+    POST /api/bot-notifications with {"ids": [...]}
+    Marks notifications as processed on the backend.
+    Returns True on HTTP 2xx, False otherwise.
+    """
+    if not BOT_NOTIFICATIONS_API_URL or not BOT_API_KEY:
+        print("[BotNotifications] mark_notifications_processed skipped: API URL or key not set")
+        return False
+
+    if not ids:
+        return True
+
+    url = f"{BOT_NOTIFICATIONS_API_URL}/api/bot-notifications"
+    try:
+        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {BOT_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"ids": ids},
+            ) as resp:
+                if resp.status in (200, 201, 204):
+                    print(f"[BotNotifications] Marked {len(ids)} notification(s) as processed ({resp.status})")
+                    return True
+                else:
+                    text = await resp.text()
+                    print(f"[BotNotifications] POST failed ({resp.status}): {text[:200]}")
+                    return False
+    except asyncio.TimeoutError:
+        print("[BotNotifications] Mark timed out")
+        return False
+    except Exception as exc:
+        print(f"[BotNotifications] Mark error: {exc}")
+        return False
+
+
+async def send_bot_notifications_task():
+    """Background loop: poll notifications API → send Discord messages → mark processed."""
+    await bot.wait_until_ready()
+    print(f"[BotNotifications] Poll task started (interval={NOTIFICATION_POLL_INTERVAL}s)")
+
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(NOTIFICATION_POLL_INTERVAL)
+
+            if not HIGH_TEST_CHANNEL_ID or not bot.get_channel(HIGH_TEST_CHANNEL_ID):
+                continue
+
+            notifications = await fetch_bot_notifications()
+            if not notifications:
+                continue
+
+            processed_ids = []
+            for notif in notifications:
+                try:
+                    username = str(notif.get("username", ""))
+                    gamemode = str(notif.get("gamemode", ""))
+                    tested_tier = str(notif.get("tested_tier", ""))
+                    result = str(notif.get("result", ""))
+                    fight_notes = notif.get("fight_notes", {}) or {}
+                    notif_id = notif.get("id")
+
+                    if not username or not gamemode or not notif_id:
+                        print(f"[BotNotifications] Skipping notification with missing fields: {notif}")
+                        continue
+
+                    message = format_discord_notification(username, gamemode, tested_tier, result, fight_notes)
+
+                    channel = bot.get_channel(HIGH_TEST_CHANNEL_ID)
+                    if not channel:
+                        print(f"[BotNotifications] Channel {HIGH_TEST_CHANNEL_ID} not found")
+                        continue
+
+                    await channel.send(message)
+                    print(f"[BotNotifications] Sent Discord message for notification id={notif_id} ({username} / {gamemode} / {tested_tier})")
+
+                    processed_ids.append(notif_id)
+                except Exception as exc:
+                    print(f"[BotNotifications] Error processing notification: {exc}")
+
+            if processed_ids:
+                success = await mark_notifications_processed(processed_ids)
+                if not success:
+                    print("[BotNotifications] WARNING: failed to confirm processed — will retry on next poll")
+
+        except Exception as exc:
+            print(f"[BotNotifications] Task fatal error: {exc}")
 
 
 async def api_get_tests(username: str, mode: str) -> Dict[str, Any]:
@@ -5121,7 +5302,10 @@ async def main():
     # queue maintenance task
     asyncio.create_task(queue_maintenance_task())
 
-    # register commands - Use guild commands only (faster sync, avoids duplicates)
+    # bot notifications poll task
+    asyncio.create_task(send_bot_notifications_task())
+
+    # register commands
     if GUILD_ID:
         g = discord.Object(id=GUILD_ID)
         bot.tree.add_command(ticketpanel, guild=g)
