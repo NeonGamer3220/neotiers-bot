@@ -1745,12 +1745,16 @@ NOTIFICATION_TIER_ORDER = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
 VALID_FIGHT_KEYS = set(NOTIFICATION_TIER_ORDER)
 
 
-def format_discord_notification(username: str, gamemode: str, tested_tier: str, result: str, fight_notes: dict) -> str:
+def format_discord_notification(username: str, gamemode: str, tested_tier: str, result: str, fight_notes: dict, tested_tier_start: str = "") -> str:
     """Format a bot notification into the required Discord message layout."""
     lines = []
 
-    # Line 1: discord_name - minecraft_name - Sikeres/... result
-    lines.append(f"{username} - {username} - **{result} volt {tested_tier} teszten.**")
+    # Line 1: minecraft_name - Sikeres/... result + earned tier
+    lines.append(f"{username} - **{result} volt {tested_tier} teszten.**")
+
+    # Line 2: starting tier info if available
+    if tested_tier_start and tested_tier_start != tested_tier:
+        lines.append(f"**Kezdő tier:** {tested_tier_start}")
 
     # Get appropriate gamemode icon
     gamemode_icon_map = {
@@ -1894,7 +1898,7 @@ async def send_bot_notifications_task():
                         print(f"[BotNotifications] Skipping notification with missing fields: {notif}")
                         continue
 
-                    message = format_discord_notification(username, gamemode, tested_tier, result, fight_notes)
+                    message = format_discord_notification(username, gamemode, tested_tier, result, fight_notes, str(notif.get("tested_tier_start", "") or ""))
 
                     channel = bot.get_channel(HIGH_TEST_CHANNEL_ID)
                     if not channel:
